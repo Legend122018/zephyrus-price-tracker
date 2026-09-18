@@ -1,0 +1,663 @@
+<title>Zephyrus Deal Watch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --ground:      #f4f6f9;
+    --surface:     #ffffff;
+    --surface-2:   #eef1f6;
+    --line:        #dde3ec;
+    --ink:         #10151d;
+    --ink-2:       #586273;
+    --ink-3:       #8790a1;
+    --accent:      #2a78d6;
+    --s1:          #2a78d6;
+    --s2:          #eb6834;
+    --s3:          #1baf7a;
+    --good:        #0ca30c;
+    --good-soft:   #e6f6e6;
+    --crit:        #d03b3b;
+    --warn:        #fab219;
+    --tag-fg:      #7a4a00;
+    --tag-bg:      #fdf0d0;
+    --tag-line:    #f0d28a;
+    --shadow:      0 1px 2px rgba(16,21,29,.06), 0 8px 24px -12px rgba(16,21,29,.18);
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --ground:    #0d1117;
+      --surface:   #161b23;
+      --surface-2: #1c222c;
+      --line:      #29313d;
+      --ink:       #e9edf4;
+      --ink-2:     #9aa4b4;
+      --ink-3:     #6e7888;
+      --accent:    #3987e5;
+      --s1:        #3987e5;
+      --s2:        #d95926;
+      --s3:        #199e70;
+      --good:      #0ca30c;
+      --good-soft: #10251040;
+      --tag-fg:    #f5c869;
+      --tag-bg:    #33270c;
+      --tag-line:  #5c4713;
+      --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:    #0d1117;
+    --surface:   #161b23;
+    --surface-2: #1c222c;
+    --line:      #29313d;
+    --ink:       #e9edf4;
+    --ink-2:     #9aa4b4;
+    --ink-3:     #6e7888;
+    --accent:    #3987e5;
+    --s1:        #3987e5;
+    --s2:        #d95926;
+    --s3:        #199e70;
+    --good:      #0ca30c;
+    --good-soft: #10251040;
+    --tag-fg:    #f5c869;
+    --tag-bg:    #33270c;
+    --tag-line:  #5c4713;
+    --shadow:    0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--sans); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 980px; margin: 0 auto; padding-inline: 20px; padding-block: 0 72px; }
+  .mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .num  { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+
+  /* ---------- masthead ---------- */
+  header.top {
+    position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+    background: color-mix(in srgb, var(--ground) 88%, transparent);
+    backdrop-filter: blur(10px);
+    border-bottom: 1px solid var(--line);
+  }
+  .top-inner {
+    max-width: 980px; margin: 0 auto; padding: 12px 20px;
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .mark {
+    font-family: var(--mono); font-weight: 600; font-size: 13px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--ink);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pulse {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--good) 22%, transparent);
+  }
+  .sample-tag {
+    margin-left: auto; font-family: var(--mono); font-size: 11px; font-weight: 500;
+    letter-spacing: .07em; text-transform: uppercase;
+    color: var(--tag-fg); background: var(--tag-bg); border: 1px solid var(--tag-line);
+    padding: 3px 9px; border-radius: 4px;
+  }
+
+  /* ---------- hero ---------- */
+  .hero { padding-block: 40px 28px; border-bottom: 1px solid var(--line); }
+  h1 {
+    font-size: clamp(30px, 6vw, 44px); line-height: 1.08; margin: 0 0 12px;
+    letter-spacing: -.025em; font-weight: 700; text-wrap: balance;
+  }
+  .lede { font-size: 17px; color: var(--ink-2); max-width: 62ch; margin: 0 0 20px; }
+  .lede strong { color: var(--ink); font-weight: 600; }
+
+  .strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+           background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .stat { background: var(--surface); padding: 12px 14px; }
+  .stat dt { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+             color: var(--ink-3); margin: 0 0 4px; font-weight: 600; }
+  .stat dd { margin: 0; font-family: var(--mono); font-size: 19px; font-weight: 600;
+             font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  .stat dd.hit { color: var(--good); }
+
+  /* ---------- sections ---------- */
+  section { padding-block: 34px; }
+  h2 {
+    font-size: 12px; letter-spacing: .11em; text-transform: uppercase; font-weight: 600;
+    color: var(--ink-3); margin: 0 0 16px; font-family: var(--mono);
+    display: flex; align-items: baseline; gap: 10px;
+  }
+  h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+  h3 { font-size: 17px; margin: 0 0 2px; font-weight: 600; letter-spacing: -.01em; }
+
+  /* ---------- alert feed ---------- */
+  .feed { display: flex; flex-direction: column; gap: 8px; }
+  .alert {
+    display: grid; grid-template-columns: 116px 1fr auto; gap: 12px; align-items: start;
+    background: var(--surface); border: 1px solid var(--line);
+    border-left: 3px solid var(--ink-3); border-radius: 7px; padding: 12px 14px;
+  }
+  .alert.hot { border-left-color: var(--good); }
+  .alert.deal { border-left-color: var(--accent); }
+  .kind {
+    justify-self: start;
+    font-family: var(--mono); font-size: 10px; font-weight: 600; letter-spacing: .06em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 4px; white-space: nowrap;
+    background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+  }
+  .alert.hot .kind { background: var(--good-soft); color: var(--good); border-color: color-mix(in srgb, var(--good) 35%, transparent); }
+  .alert-body { min-width: 0; }
+  .alert-title { font-weight: 600; font-size: 14.5px; margin: 0 0 2px; }
+  .alert-msg { color: var(--ink-2); font-size: 13.5px; margin: 0; }
+  .alert-msg b { color: var(--ink); font-family: var(--mono); font-weight: 600; }
+  .alert-when { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); white-space: nowrap; }
+
+  /* ---------- chart ---------- */
+  .chart-card { background: var(--surface); border: 1px solid var(--line);
+                border-radius: 10px; padding: 16px 16px 10px; box-shadow: var(--shadow); }
+  .chart-head { display: flex; justify-content: space-between; align-items: baseline;
+                gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+  .chart-head p { margin: 0; font-size: 13px; color: var(--ink-2); }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; margin: 8px 0 0; padding: 0; list-style: none; }
+  .legend li { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .swatch { width: 11px; height: 3px; border-radius: 2px; flex: none; }
+  .chart-scroll { overflow-x: auto; }
+  svg.plot { display: block; width: 100%; min-width: 560px; height: auto; touch-action: pan-y; }
+  .tip {
+    position: absolute; pointer-events: none; z-index: 5; opacity: 0;
+    transition: opacity .12s ease; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 7px; padding: 8px 10px;
+    box-shadow: var(--shadow); font-size: 12.5px; min-width: 150px;
+  }
+  .tip .tip-date { font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+                   margin-bottom: 5px; letter-spacing: .03em; }
+  .tip-row { display: flex; align-items: center; gap: 7px; justify-content: space-between; }
+  .tip-row span.k { display: flex; align-items: center; gap: 6px; color: var(--ink-2); }
+  .tip-row b { font-family: var(--mono); font-variant-numeric: tabular-nums; font-weight: 600; }
+  .chart-host { position: relative; }
+
+  /* ---------- offers table ---------- */
+  .filters { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+  .chip {
+    font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    background: var(--surface); color: var(--ink-2);
+    border: 1px solid var(--line); border-radius: 999px; padding: 5px 13px;
+    transition: background .15s ease, color .15s ease, border-color .15s ease;
+  }
+  .chip:hover { border-color: var(--ink-3); color: var(--ink); }
+  .chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .product { background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+             margin-bottom: 14px; overflow: hidden; box-shadow: var(--shadow); }
+  .product > header { padding: 14px 16px 10px; display: flex; gap: 14px;
+                      align-items: baseline; flex-wrap: wrap; }
+  .product .sku { font-family: var(--mono); font-size: 11.5px; color: var(--ink-3); }
+  .tbl-scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; min-width: 620px; }
+  thead th {
+    font-family: var(--mono); font-size: 10px; letter-spacing: .07em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; text-align: left;
+    padding: 6px 14px; border-block: 1px solid var(--line); background: var(--surface-2);
+  }
+  thead th.r { text-align: right; }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.r { text-align: right; }
+  .cond { font-weight: 600; font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
+  .tier { width: 3px; height: 15px; border-radius: 2px; flex: none; background: var(--ink-3); }
+  .tier.ob { background: var(--s2); }
+  .tier.new { background: var(--s1); }
+  .price { font-family: var(--mono); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .was { font-family: var(--mono); font-size: 12.5px; color: var(--ink-3); text-decoration: line-through; }
+  .off { font-family: var(--mono); font-size: 12.5px; font-weight: 600; color: var(--good); white-space: nowrap; }
+  .off.mild { color: var(--ink-2); }
+  .stock { font-size: 12.5px; white-space: nowrap; display: flex; align-items: center; gap: 6px; }
+  .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+  .dot.on { background: var(--good); } .dot.off { background: var(--ink-3); }
+  .pickup { font-size: 11.5px; color: var(--ink-2); display: block; margin-top: 2px; }
+  svg.spark { display: block; }
+
+  /* ---------- setup ---------- */
+  .steps { display: grid; gap: 10px; counter-reset: step; }
+  .step { display: grid; grid-template-columns: auto 1fr; gap: 13px; align-items: start;
+          background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px; }
+  .step::before {
+    counter-increment: step; content: counter(step);
+    font-family: var(--mono); font-size: 11px; font-weight: 600;
+    width: 21px; height: 21px; border-radius: 50%; display: grid; place-items: center;
+    background: var(--surface-2); color: var(--ink-2); border: 1px solid var(--line);
+  }
+  .step p { margin: 0 0 7px; font-size: 14px; }
+  .step p:last-child { margin-bottom: 0; }
+  pre {
+    margin: 0; background: var(--ground); border: 1px solid var(--line); border-radius: 6px;
+    padding: 9px 11px; overflow-x: auto; font-family: var(--mono); font-size: 12.5px;
+    line-height: 1.7; color: var(--ink);
+  }
+  pre .c { color: var(--ink-3); }
+  a { color: var(--accent); }
+  .notes { display: grid; gap: 9px; }
+  .note { display: grid; grid-template-columns: auto 1fr; gap: 11px;
+          font-size: 13.5px; color: var(--ink-2); }
+  .note b { color: var(--ink); font-weight: 600; }
+  .note .bullet { width: 5px; height: 5px; border-radius: 50%; background: var(--ink-3); margin-top: 8px; }
+  footer.end { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 10px;
+               font-size: 12.5px; color: var(--ink-3); }
+
+  @media (max-width: 640px) {
+    .strip { grid-template-columns: repeat(2, 1fr); }
+    .alert { grid-template-columns: 116px 1fr; }
+    .alert-when { grid-column: 2; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<header class="top">
+  <div class="top-inner">
+    <span class="mark"><span class="pulse" aria-hidden="true"></span>Zephyrus Deal Watch</span>
+    <span class="sample-tag">Sample data &middot; not live prices</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>Every Zephyrus price at Best Buy, watched from Boston.</h1>
+    <p class="lede">A preview of what the tracker sends you. It polls the official Best Buy
+      API for <strong>new, open-box and refurbished</strong> pricing on every ASUS ROG Zephyrus
+      SKU, checks pickup stock at stores near <strong>02108</strong>, and pushes an alert when
+      something drops hard or an open-box unit reappears.</p>
+    <dl class="strip">
+      <div class="stat"><dt>Models tracked</dt><dd>2</dd></div>
+      <div class="stat"><dt>Live offers</dt><dd>4</dd></div>
+      <div class="stat"><dt>Best discount</dt><dd class="hit">41.1%</dd></div>
+      <div class="stat"><dt>Open-box in stock</dt><dd class="hit">2</dd></div>
+    </dl>
+  </div>
+
+  <section>
+    <h2>Alert feed</h2>
+    <div class="feed" id="feed"></div>
+  </section>
+
+  <section>
+    <h2>Price history &middot; Zephyrus G14</h2>
+    <div class="chart-card">
+      <div class="chart-head">
+        <p>Three weeks of observations. Gaps in the open-box lines are exactly what the
+           restock alert fires on &mdash; the offer vanished, then came back.</p>
+      </div>
+      <div class="chart-host">
+        <div class="chart-scroll"><svg class="plot" id="plot" viewBox="0 0 760 300"
+             role="img" aria-label="Step line chart of ASUS Zephyrus G14 prices from August 28 to September 18, 2026. New falls from $1,999.99 to $1,599.99. Open-Box Excellent runs from $1,499.99 to $1,279.99 with a gap while out of stock. Open-Box Fair runs from $1,379.99 to $1,177.59 with the same gap."></svg></div>
+        <div class="tip" id="tip" role="status" aria-live="off"></div>
+      </div>
+      <ul class="legend">
+        <li><span class="swatch" style="background:var(--s1)"></span>New</li>
+        <li><span class="swatch" style="background:var(--s2)"></span>Open-Box: Excellent</li>
+        <li><span class="swatch" style="background:var(--s3)"></span>Open-Box: Fair</li>
+      </ul>
+    </div>
+  </section>
+
+  <section>
+    <h2>Current offers</h2>
+    <div class="filters" role="group" aria-label="Filter offers">
+      <button class="chip" type="button" data-filter="all" aria-pressed="true">All offers</button>
+      <button class="chip" type="button" data-filter="ob" aria-pressed="false">Open-box only</button>
+      <button class="chip" type="button" data-filter="cheap" aria-pressed="false">Under $1,500</button>
+      <button class="chip" type="button" data-filter="local" aria-pressed="false">Boston pickup</button>
+    </div>
+    <div id="products"></div>
+  </section>
+
+  <section>
+    <h2>Run it yourself</h2>
+    <div class="steps">
+      <div class="step">
+        <div><p>Grab a free Best Buy developer key &mdash; issued instantly at
+          <a href="https://developer.bestbuy.com/" target="_blank" rel="noopener">developer.bestbuy.com</a>.</p>
+          <pre><span class="c">$</span> export BESTBUY_API_KEY=your_key_here</pre></div>
+      </div>
+      <div class="step">
+        <div><p>Unpack the tracker and write a config. No <span class="mono">pip install</span> &mdash;
+          it is Python 3.11 standard library only.</p>
+          <pre><span class="c">$</span> tar xzf zephyrus-price-tracker.tar.gz &amp;&amp; cd zephyrus-price-tracker
+<span class="c">$</span> python3 -m zephyrus_tracker init</pre></div>
+      </div>
+      <div class="step">
+        <div><p>Check the key, confirm which Boston stores resolved, and see what it found.</p>
+          <pre><span class="c">$</span> python3 -m zephyrus_tracker check
+<span class="c">$</span> python3 -m zephyrus_tracker stores
+<span class="c">$</span> python3 -m zephyrus_tracker discover</pre></div>
+      </div>
+      <div class="step">
+        <div><p>Point alerts at your phone &mdash; pick an unguessable ntfy topic, subscribe to it
+          in the ntfy app, and test the whole chain.</p>
+          <pre><span class="c">#</span> config.toml
+[notify.ntfy]
+enabled = true
+topic   = "zephyrus-bos-7f3a91"
+
+<span class="c">$</span> python3 -m zephyrus_tracker test-alert</pre></div>
+      </div>
+      <div class="step">
+        <div><p>Then leave it running. Open-box units are single listings that often vanish within
+          hours, so every 30 minutes is a sensible cadence.</p>
+          <pre><span class="c">$</span> python3 -m zephyrus_tracker watch --interval 30</pre>
+          <p style="margin-top:7px;color:var(--ink-2);font-size:13px">Or use the included cron,
+            systemd or GitHub Actions recipes &mdash; the Actions workflow runs on GitHub's
+            machines and caches the price history, so you don't need an always-on computer.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Worth knowing</h2>
+    <div class="notes">
+      <div class="note"><span class="bullet"></span><div><b>The numbers on this page are simulated.</b>
+        They demonstrate the interface and the alert logic. Real figures appear once you run a scan
+        against the Best Buy API with your own key.</div></div>
+      <div class="note"><span class="bullet"></span><div><b>An API key is required, and there's no way around it.</b>
+        Best Buy's storefront is bot-protected; scraping it would be fragile and against their terms.
+        The official API is the supported path, and it's free.</div></div>
+      <div class="note"><span class="bullet"></span><div><b>Open-box stock is reported nationally, not per store.</b>
+        Best Buy exposes open-box offers and their condition tiers, but not which store holds a given
+        unit &mdash; so the pickup data in alerts is for the new listing.</div></div>
+      <div class="note"><span class="bullet"></span><div><b>The first scan is quiet by design.</b>
+        It has nothing to compare against yet, and the all-time-low rule needs three observations
+        before it means anything.</div></div>
+      <div class="note"><span class="bullet"></span><div><b>Treat an alert as "go look now."</b>
+        API data can trail the website by a few minutes, which matters for a fast-moving open-box unit.</div></div>
+    </div>
+    <footer class="end">Zephyrus Deal Watch &middot; interface preview for zephyrus-price-tracker.
+      Data shown is simulated; prices and availability at Best Buy change without notice.</footer>
+  </section>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var DATES = ["Aug 28","Sep 1","Sep 4","Sep 7","Sep 9","Sep 11","Sep 14","Sep 16","Sep 18"];
+  var SERIES = [
+    { key: "new",  label: "New",                 color: "--s1",
+      values: [1999.99,1949.99,1849.99,1899.99,1799.99,1749.99,1699.99,1799.99,1599.99] },
+    { key: "obe",  label: "Open-Box: Excellent",  color: "--s2",
+      values: [null,1499.99,1499.99,null,null,1399.99,1349.99,1349.99,1279.99] },
+    { key: "obf",  label: "Open-Box: Fair",       color: "--s3",
+      values: [null,1379.99,1379.99,null,null,1287.99,1241.99,1241.99,1177.59] }
+  ];
+
+  var ALERTS = [
+    { sev: "hot",  kind: "all-time low",     when: "Sep 18 · 09:12",
+      title: "ASUS ROG Zephyrus G14 14\" OLED",
+      msg: "Lowest we've recorded for <b>Open-Box: Excellent</b> — <b>$1,279.99</b> (previous low $1,349.99)" },
+    { sev: "hot",  kind: "heavy discount",   when: "Sep 18 · 09:12",
+      title: "ASUS ROG Zephyrus G14 14\" OLED",
+      msg: "<b>New</b> is <b>20.0% off</b> — <b>$1,599.99</b>, down $400.00 from $1,999.99" },
+    { sev: "hot",  kind: "all-time low",     when: "Sep 18 · 09:12",
+      title: "ASUS ROG Zephyrus G16 16\" OLED",
+      msg: "Lowest we've recorded for <b>New</b> — <b>$1,999.99</b> (previous low $2,099.99)" },
+    { sev: "hot",  kind: "open-box restock", when: "Sep 11 · 14:41",
+      title: "ASUS ROG Zephyrus G14 14\" OLED",
+      msg: "<b>Open-Box: Excellent</b> is back in stock at <b>$1,399.99</b> (30.0% off $1,999.99)" },
+    { sev: "deal", kind: "boston pickup",    when: "Sep 9 · 11:08",
+      title: "ASUS ROG Zephyrus G14 14\" OLED",
+      msg: "<b>New</b> now available for pickup near Boston: Best Buy Cambridge, Best Buy Watertown" }
+  ];
+
+  var PRODUCTS = [
+    { name: 'ASUS — ROG Zephyrus G14 14" OLED Gaming Laptop', sku: "6571749", model: "GA403UV",
+      offers: [
+        { cond: "New", tier: "new", price: 1599.99, list: 1999.99, low: 1599.99,
+          stock: true, pickup: "Cambridge, Watertown", ob: false, series: 0 },
+        { cond: "Open-Box: Excellent", tier: "ob", price: 1279.99, list: 1999.99, low: 1279.99,
+          stock: true, pickup: null, ob: true, series: 1 },
+        { cond: "Open-Box: Fair", tier: "ob", price: 1177.59, list: 1999.99, low: 1177.59,
+          stock: true, pickup: null, ob: true, series: 2 }
+      ] },
+    { name: 'ASUS — ROG Zephyrus G16 16" OLED Gaming Laptop', sku: "6571750", model: "GU605MI",
+      offers: [
+        { cond: "New", tier: "new", price: 1999.99, list: 2499.99, low: 1999.99,
+          stock: true, pickup: null, ob: false,
+          history: [2499.99,2499.99,2399.99,2299.99,2349.99,2199.99,2099.99,2149.99,1999.99] }
+      ] }
+  ];
+
+  var SVG = "http://www.w3.org/2000/svg";
+  function el(tag, attrs) {
+    var n = document.createElementNS(SVG, tag);
+    for (var k in attrs) n.setAttribute(k, attrs[k]);
+    return n;
+  }
+  function usd(v) {
+    return "$" + v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /* ---------------------------------------------------------------- feed */
+  var feed = document.getElementById("feed");
+  ALERTS.forEach(function (a) {
+    var row = document.createElement("article");
+    row.className = "alert " + a.sev;
+    row.innerHTML =
+      '<span class="kind">' + a.kind + '</span>' +
+      '<div class="alert-body"><p class="alert-title">' + a.title + '</p>' +
+      '<p class="alert-msg">' + a.msg + '</p></div>' +
+      '<span class="alert-when">' + a.when + '</span>';
+    feed.appendChild(row);
+  });
+
+  /* --------------------------------------------------------------- chart */
+  var W = 760, H = 300, L = 62, R = 636, T = 22, B = 246;
+  var LO = 1100, HI = 2100;
+  var plot = document.getElementById("plot");
+  var tip = document.getElementById("tip");
+
+  function x(i) { return L + (R - L) * i / (DATES.length - 1); }
+  function y(v) { return B - (v - LO) / (HI - LO) * (B - T); }
+
+  // Gridlines + y labels, drawn first so marks sit above them.
+  [1200, 1400, 1600, 1800, 2000].forEach(function (v) {
+    plot.appendChild(el("line", { x1: L, x2: R, y1: y(v), y2: y(v),
+      stroke: "var(--line)", "stroke-width": 1 }));
+    var t = el("text", { x: L - 10, y: y(v) + 4, "text-anchor": "end",
+      fill: "var(--ink-3)", "font-size": 11, "font-family": "var(--mono)" });
+    t.textContent = "$" + (v / 1000).toFixed(1) + "k";
+    plot.appendChild(t);
+  });
+
+  // X labels.
+  DATES.forEach(function (d, i) {
+    var t = el("text", { x: x(i), y: B + 20, "text-anchor": "middle",
+      fill: "var(--ink-3)", "font-size": 11, "font-family": "var(--mono)" });
+    t.textContent = d;
+    plot.appendChild(t);
+  });
+
+  // Step-after paths: a price holds until it changes. Nulls break the line,
+  // which is the visual signature of an offer going out of stock.
+  SERIES.forEach(function (s) {
+    var d = "", open = false, prevY = null;
+    s.values.forEach(function (v, i) {
+      if (v === null) { open = false; prevY = null; return; }
+      var px = x(i), py = y(v);
+      if (!open) { d += "M" + px + "," + py; open = true; }
+      else { d += "L" + px + "," + prevY + "L" + px + "," + py; }
+      prevY = py;
+    });
+    plot.appendChild(el("path", { d: d, fill: "none", stroke: "var(" + s.color + ")",
+      "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+
+    // Mark each point where a series returns from a gap: that is a restock.
+    s.values.forEach(function (v, i) {
+      if (v === null || i === 0) return;
+      if (s.values[i - 1] === null) {
+        plot.appendChild(el("circle", { cx: x(i), cy: y(v), r: 4.5,
+          fill: "var(--surface)", stroke: "var(" + s.color + ")", "stroke-width": 2 }));
+      }
+    });
+
+    // Direct end label — three series, so each is named on the chart itself.
+    var lastIdx = -1;
+    s.values.forEach(function (v, i) { if (v !== null) lastIdx = i; });
+    var lv = s.values[lastIdx];
+    plot.appendChild(el("circle", { cx: x(lastIdx), cy: y(lv), r: 3.5,
+      fill: "var(" + s.color + ")", stroke: "var(--surface)", "stroke-width": 2 }));
+    var lab = el("text", { x: x(lastIdx) + 11, y: y(lv) + 4,
+      fill: "var(--ink)", "font-size": 12, "font-weight": 600, "font-family": "var(--mono)" });
+    lab.textContent = usd(lv);
+    plot.appendChild(lab);
+  });
+
+  // Crosshair + tooltip.
+  var cross = el("line", { y1: T, y2: B, stroke: "var(--ink-3)", "stroke-width": 1,
+    "stroke-dasharray": "3 3", opacity: 0 });
+  plot.appendChild(cross);
+
+  var host = plot.parentNode.parentNode;
+  function nearest(evt) {
+    var box = plot.getBoundingClientRect();
+    var px = (evt.clientX - box.left) / box.width * W;
+    var best = 0, bestD = Infinity;
+    for (var i = 0; i < DATES.length; i++) {
+      var d = Math.abs(x(i) - px);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+  function showTip(evt) {
+    var i = nearest(evt);
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    cross.setAttribute("opacity", 1);
+    var rows = SERIES.map(function (s) {
+      var v = s.values[i];
+      return '<div class="tip-row"><span class="k"><span class="swatch" style="background:var(' +
+        s.color + ')"></span>' + s.label + '</span><b>' +
+        (v === null ? "—" : usd(v)) + "</b></div>";
+    }).join("");
+    tip.innerHTML = '<div class="tip-date">' + DATES[i] + ", 2026</div>" + rows;
+    tip.style.opacity = 1;
+    var box = plot.getBoundingClientRect();
+    var hostBox = host.getBoundingClientRect();
+    var cx = box.left - hostBox.left + x(i) / W * box.width;
+    var tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(cx - tw / 2, hostBox.width - tw)) + "px";
+    tip.style.top = "6px";
+  }
+  function hideTip() { tip.style.opacity = 0; cross.setAttribute("opacity", 0); }
+  plot.addEventListener("mousemove", showTip);
+  plot.addEventListener("mouseleave", hideTip);
+  plot.addEventListener("touchstart", function (e) { showTip(e.touches[0]); }, { passive: true });
+  plot.addEventListener("touchmove", function (e) { showTip(e.touches[0]); }, { passive: true });
+  plot.addEventListener("touchend", hideTip);
+
+  /* ------------------------------------------------------------ products */
+  function spark(values) {
+    var w = 118, h = 30, pad = 4;
+    var pts = [];
+    values.forEach(function (v, i) { if (v !== null) pts.push([i, v]); });
+    var vals = pts.map(function (p) { return p[1]; });
+    var lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    var span = (hi - lo) || 1;
+    var n = values.length - 1;
+    function sx(i) { return pad + (w - pad * 2) * i / n; }
+    function sy(v) { return pad + (h - pad * 2) - (v - lo) / span * (h - pad * 2); }
+
+    var svg = el("svg", { class: "spark", viewBox: "0 0 " + w + " " + h,
+      width: w, height: h, "aria-hidden": "true" });
+    var d = "", open = false, prevY = null;
+    values.forEach(function (v, i) {
+      if (v === null) { open = false; prevY = null; return; }
+      if (!open) { d += "M" + sx(i) + "," + sy(v); open = true; }
+      else { d += "L" + sx(i) + "," + prevY + "L" + sx(i) + "," + sy(v); }
+      prevY = sy(v);
+    });
+    svg.appendChild(el("path", { d: d, fill: "none", stroke: "var(--accent)",
+      "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+    var lastIdx = -1;
+    values.forEach(function (v, i) { if (v !== null) lastIdx = i; });
+    var atLow = values[lastIdx] === lo;
+    svg.appendChild(el("circle", { cx: sx(lastIdx), cy: sy(values[lastIdx]), r: 3,
+      fill: atLow ? "var(--good)" : "var(--accent)", stroke: "var(--surface)", "stroke-width": 2 }));
+    return svg;
+  }
+
+  var host2 = document.getElementById("products");
+  PRODUCTS.forEach(function (p) {
+    var card = document.createElement("article");
+    card.className = "product";
+    var head = document.createElement("header");
+    head.innerHTML = "<h3>" + p.name + "</h3><span class='sku'>SKU " + p.sku +
+      " &middot; " + p.model + "</span>";
+    card.appendChild(head);
+
+    var scroll = document.createElement("div");
+    scroll.className = "tbl-scroll";
+    var table = document.createElement("table");
+    table.innerHTML = "<thead><tr><th>Condition</th><th class='r'>Price</th>" +
+      "<th class='r'>List</th><th class='r'>Off</th><th class='r'>Lowest seen</th>" +
+      "<th>Availability</th><th>History</th></tr></thead>";
+    var tbody = document.createElement("tbody");
+
+    p.offers.forEach(function (o) {
+      var pct = (o.list - o.price) / o.list * 100;
+      var tr = document.createElement("tr");
+      tr.dataset.ob = o.ob ? "1" : "0";
+      tr.dataset.price = o.price;
+      tr.dataset.local = o.pickup ? "1" : "0";
+      tr.innerHTML =
+        "<td><span class='cond'><span class='tier " + o.tier + "'></span>" + o.cond + "</span></td>" +
+        "<td class='r'><span class='price'>" + usd(o.price) + "</span></td>" +
+        "<td class='r'><span class='was'>" + usd(o.list) + "</span></td>" +
+        "<td class='r'><span class='off" + (pct >= 15 ? "" : " mild") + "'>" +
+          pct.toFixed(1) + "%</span></td>" +
+        "<td class='r'><span class='num' style='font-size:12.5px;color:var(--ink-2)'>" +
+          usd(o.low) + "</span></td>" +
+        "<td><span class='stock'><span class='dot " + (o.stock ? "on" : "off") + "'></span>" +
+          (o.stock ? "In stock" : "Unavailable") + "</span>" +
+          (o.pickup ? "<span class='pickup'>Pickup: " + o.pickup + "</span>" : "") + "</td>";
+      var tdSpark = document.createElement("td");
+      var vals = o.history || SERIES[o.series].values;
+      tdSpark.appendChild(spark(vals));
+      tr.appendChild(tdSpark);
+      tbody.appendChild(tr);
+    });
+
+    table.appendChild(tbody);
+    scroll.appendChild(table);
+    card.appendChild(scroll);
+    host2.appendChild(card);
+  });
+
+  /* ------------------------------------------------------------- filters */
+  var chips = Array.prototype.slice.call(document.querySelectorAll(".chip"));
+  function apply(mode) {
+    Array.prototype.forEach.call(document.querySelectorAll("#products tbody tr"), function (tr) {
+      var show = mode === "all"
+        || (mode === "ob" && tr.dataset.ob === "1")
+        || (mode === "cheap" && parseFloat(tr.dataset.price) < 1500)
+        || (mode === "local" && tr.dataset.local === "1");
+      tr.hidden = !show;
+    });
+    Array.prototype.forEach.call(document.querySelectorAll(".product"), function (card) {
+      var any = Array.prototype.some.call(card.querySelectorAll("tbody tr"), function (tr) {
+        return !tr.hidden;
+      });
+      card.hidden = !any;
+    });
+  }
+  chips.forEach(function (c) {
+    c.addEventListener("click", function () {
+      chips.forEach(function (o) { o.setAttribute("aria-pressed", String(o === c)); });
+      apply(c.dataset.filter);
+    });
+  });
+})();
+</script>

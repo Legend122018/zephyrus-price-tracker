@@ -147,7 +147,9 @@ zephyrus test-alert              send a sample alert through every channel
 
 ### The HTML report
 
-`zephyrus report --html` writes a single self-contained file — no JavaScript, no
+`docs/preview.html` is a standalone preview of the interface built on simulated
+data — open it in a browser to see the shape of the output before you have a key.
+For real numbers, `zephyrus report --html` writes a single self-contained file — no JavaScript, no
 CDN, no network calls — with every tracked offer, its discount, its lowest
 recorded price, Boston pickup status and a step-chart sparkline of its price
 history. Light and dark themes both included.
