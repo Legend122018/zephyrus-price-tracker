@@ -1,0 +1,104 @@
+# ============================================================================
+#  zephyrus-price-tracker configuration
+#  Every value below is a default -- delete anything you don't want to change.
+# ============================================================================
+
+[bestbuy]
+# Free key, issued instantly: https://developer.bestbuy.com/
+# Leave blank here and use the BESTBUY_API_KEY env var instead if you'd rather
+# keep the key out of the file (recommended if you commit this anywhere).
+api_key = ""
+requests_per_second = 4        # Best Buy tolerates ~5/sec; stay under it
+timeout_seconds = 30
+max_retries = 4
+
+
+[search]
+# One Products API query per term; results are merged and de-duplicated.
+terms = ["zephyrus"]
+manufacturer = "asus"
+
+# A product must contain one of these in its name...
+include_keywords = ["zephyrus"]
+
+# ...and none of these (kills sleeves, chargers, warranties and mice).
+exclude_keywords = [
+    "case", "sleeve", "backpack", "bag", "charger", "adapter", "dock",
+    "warranty", "protection", "mouse", "keyboard", "headset", "cable",
+]
+
+# Optional: restrict to specific model families. Empty = every Zephyrus.
+# e.g. models = ["G14", "G16"]
+models = []
+
+
+[location]
+postal_code = "02108"          # downtown Boston
+radius_miles = 25              # covers Cambridge, Watertown, Dorchester,
+                               # Everett, Saugus, Dedham, Braintree, Framingham
+# Optional: pin to specific stores instead of everything in the radius.
+# Run `zephyrus stores` to see IDs, then e.g. store_ids = ["1497", "1416"]
+store_ids = []
+
+# Optional: only these cities count as "near Boston".
+# e.g. city_allowlist = ["Cambridge", "Watertown", "Boston"]
+city_allowlist = []
+
+
+[thresholds]
+heavy_discount_pct    = 15.0   # % off list before a NEW unit counts as a deal
+open_box_discount_pct = 12.0   # lower bar for open-box / refurbished
+price_drop_pct        = 5.0    # drop vs the last observed price...
+price_drop_dollars    = 75.0   # ...or this many dollars, whichever hits first
+min_drop_dollars      = 20.0   # ignore moves smaller than this entirely
+alert_on_all_time_low = true   # tell me when it beats every price I've recorded
+alert_on_new_product  = true   # tell me when a new Zephyrus SKU shows up
+max_price             = 0      # 0 = no cap. Set e.g. 1800 to mute pricier units.
+
+
+[alerts]
+cooldown_hours      = 24       # don't repeat an identical alert within a day
+include_unavailable = false    # alert on price changes for out-of-stock items
+
+
+[storage]
+database = "zephyrus.db"
+
+
+# ---------------------------------------------------------------------------
+#  Notification channels -- enable as many as you like.
+# ---------------------------------------------------------------------------
+
+[notify.console]
+enabled = true
+
+[notify.file]
+enabled = true
+path = "alerts.jsonl"
+
+# Phone push with no account and no app signup: pick an unguessable topic
+# name, install the ntfy app, subscribe to that topic. This is the easiest
+# way to get real-time alerts on your phone.
+[notify.ntfy]
+enabled = false
+server  = "https://ntfy.sh"
+topic   = ""                   # e.g. "zephyrus-bos-7f3a91" -- keep it private
+token   = ""                   # only for self-hosted / reserved topics
+
+# Gmail: turn on 2FA, then create an App Password
+# (https://myaccount.google.com/apppasswords) and use that as `password`.
+[notify.email]
+enabled   = false
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+use_ssl   = false              # true if you use port 465
+username  = ""
+password  = ""                 # or set ZEPHYRUS_SMTP_PASSWORD in the env
+from_addr = ""                 # defaults to username
+to_addrs  = []                 # e.g. ["you@example.com"]
+
+# Slack and Discord webhook URLs are auto-detected and formatted; any other
+# URL receives the raw JSON payload.
+[notify.webhook]
+enabled = false
+url     = ""

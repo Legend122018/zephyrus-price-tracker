@@ -1,0 +1,50 @@
+# Run the tracker on GitHub's infrastructure -- no always-on machine needed.
+#
+# Setup:
+#   1. Push this repo to GitHub (it can be private).
+#   2. Settings > Secrets and variables > Actions, add BESTBUY_API_KEY and
+#      whichever notifier secrets you use (ZEPHYRUS_NTFY_TOPIC is the simplest).
+#   3. The SQLite database is cached between runs so price history survives.
+name: Zephyrus price scan
+
+on:
+  schedule:
+    - cron: "*/30 11-23,0-3 * * *"   # every 30 min, ~7am-11pm Eastern
+  workflow_dispatch:
+
+concurrency:
+  group: zephyrus-scan
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Price history lives in the cache; restore-keys picks up the newest.
+      - name: Restore price history
+        uses: actions/cache/restore@v4
+        with:
+          path: zephyrus.db
+          key: zephyrus-db-${{ github.run_id }}
+          restore-keys: zephyrus-db-
+
+      - name: Scan
+        env:
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          ZEPHYRUS_NTFY_TOPIC: ${{ secrets.ZEPHYRUS_NTFY_TOPIC }}
+          ZEPHYRUS_WEBHOOK_URL: ${{ secrets.ZEPHYRUS_WEBHOOK_URL }}
+          ZEPHYRUS_SMTP_PASSWORD: ${{ secrets.ZEPHYRUS_SMTP_PASSWORD }}
+        run: python -m zephyrus_tracker scan
+
+      - name: Save price history
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: zephyrus.db
+          key: zephyrus-db-${{ github.run_id }}

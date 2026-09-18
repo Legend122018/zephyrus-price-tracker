@@ -1,0 +1,11 @@
+[Unit]
+Description=Run the Zephyrus price scan every 30 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=30min
+RandomizedDelaySec=3min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

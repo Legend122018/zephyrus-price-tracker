@@ -1,0 +1,16 @@
+# Local state -- never commit these
+config.toml
+*.db
+*.db-wal
+*.db-shm
+alerts.jsonl
+report.html
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.DS_Store

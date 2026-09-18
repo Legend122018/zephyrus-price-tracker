@@ -1,0 +1,12 @@
+# Check every 30 minutes between 7am and 11pm Eastern.
+# Install with:  crontab -e
+#
+# Open-box units are the ones worth checking often -- they are single-unit
+# listings that vanish within hours of appearing.
+
+BESTBUY_API_KEY=your_key_here
+
+*/30 7-23 * * *  cd /home/you/zephyrus-price-tracker && /usr/bin/python3 -m zephyrus_tracker scan >> scan.log 2>&1
+
+# A daily HTML report at 8am:
+0 8 * * *  cd /home/you/zephyrus-price-tracker && /usr/bin/python3 -m zephyrus_tracker report --html report.html >> scan.log 2>&1
