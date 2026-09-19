@@ -35,6 +35,11 @@ on:
         description: "Send a test alert instead of scanning (checks ntfy/webhook/email)"
         type: boolean
         default: false
+      backend:
+        description: "Backend for this one run only; leaves the schedule alone"
+        type: choice
+        options: ["", "feeds", "bestbuy"]
+        default: ""
 
 concurrency:
   group: zephyrus-scan
@@ -72,8 +77,12 @@ jobs:
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
           ZEPHYRUS_BACKEND: ${{ vars.ZEPHYRUS_BACKEND }}
+          OVERRIDE: ${{ inputs.backend }}
         run: |
-          backend="${ZEPHYRUS_BACKEND:-feeds}"
+          # A dispatch override lets a new API key be tried once without
+          # committing the every-30-minutes schedule to a backend that may
+          # still be pending approval.
+          backend="${OVERRIDE:-${ZEPHYRUS_BACKEND:-feeds}}"
           if [ "$backend" = "bestbuy" ] && [ -z "$BESTBUY_API_KEY" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             {
@@ -88,6 +97,7 @@ jobs:
             echo "::notice::backend=bestbuy but no API key; skipping the scan."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "backend=$backend" >> "$GITHUB_OUTPUT"
             echo "::notice::running the $backend backend."
           fi
 
@@ -109,7 +119,7 @@ jobs:
         if: steps.guard.outputs.configured == 'true' && !inputs.test_alert
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
-          ZEPHYRUS_BACKEND: ${{ vars.ZEPHYRUS_BACKEND }}
+          ZEPHYRUS_BACKEND: ${{ steps.guard.outputs.backend }}
           ZEPHYRUS_NTFY_TOPIC: ${{ secrets.ZEPHYRUS_NTFY_TOPIC }}
           ZEPHYRUS_WEBHOOK_URL: ${{ secrets.ZEPHYRUS_WEBHOOK_URL }}
           ZEPHYRUS_SMTP_PASSWORD: ${{ secrets.ZEPHYRUS_SMTP_PASSWORD }}
