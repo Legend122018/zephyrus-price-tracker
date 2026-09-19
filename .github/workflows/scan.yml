@@ -1,24 +1,41 @@
-# Run the tracker on GitHub's infrastructure -- no always-on machine needed.
+# Run the tracker on GitHub's machines -- no always-on computer needed.
 #
-# Setup:
-#   1. Push this repo to GitHub (it can be private).
-#   2. Settings > Secrets and variables > Actions, add BESTBUY_API_KEY and
-#      whichever notifier secrets you use (ZEPHYRUS_NTFY_TOPIC is the simplest).
-#   3. The SQLite database is cached between runs so price history survives.
+# ONE-TIME SETUP (the parts only a repo admin can do):
+#   1. Settings > Secrets and variables > Actions > New repository secret:
+#        BESTBUY_API_KEY        required -- https://developer.bestbuy.com/
+#        ZEPHYRUS_NTFY_TOPIC    optional -- phone push via ntfy.sh
+#        ZEPHYRUS_WEBHOOK_URL   optional -- Slack / Discord / generic webhook
+#        ZEPHYRUS_SMTP_PASSWORD optional -- only if you enable notify.email
+#   2. Actions tab > enable workflows if prompted.
+#   3. Run it once by hand: Actions > "Zephyrus price scan" > Run workflow.
+#
+# Price history lives in the Actions cache between runs. Each run saves a new
+# entry and restores the newest previous one, so the SQLite DB carries forward.
+#
+# NOTE: GitHub disables scheduled workflows after 60 days with no commits to
+# the repository. If alerts go quiet for a long stretch, check the Actions tab
+# for a "this workflow was disabled" banner and re-enable it.
 name: Zephyrus price scan
 
 on:
   schedule:
-    - cron: "*/30 11-23,0-3 * * *"   # every 30 min, ~7am-11pm Eastern
+    # Every 30 minutes, 11:00-03:59 UTC. That is roughly 7am-11pm Eastern in
+    # summer (EDT) and 6am-10pm in winter (EST) -- cron has no timezone, so the
+    # window shifts an hour with daylight saving. Widen it if you care.
+    - cron: "*/30 11-23,0-3 * * *"
   workflow_dispatch:
 
 concurrency:
   group: zephyrus-scan
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
   scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -26,7 +43,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      # Price history lives in the cache; restore-keys picks up the newest.
+      # restore-keys picks up the newest zephyrus-db-* entry from a prior run.
       - name: Restore price history
         uses: actions/cache/restore@v4
         with:
@@ -42,9 +59,33 @@ jobs:
           ZEPHYRUS_SMTP_PASSWORD: ${{ secrets.ZEPHYRUS_SMTP_PASSWORD }}
         run: python -m zephyrus_tracker scan
 
+      # Save first, so a failure in report generation never costs you history.
       - name: Save price history
         if: always()
         uses: actions/cache/save@v4
         with:
           path: zephyrus.db
           key: zephyrus-db-${{ github.run_id }}
+
+      - name: Build HTML report
+        if: always()
+        run: python -m zephyrus_tracker report --html report.html
+
+      # Download this from the run's summary page to see current prices and
+      # full history without cloning anything.
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: zephyrus-report
+          path: report.html
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Zephyrus scan"
+            echo ""
+            python -m zephyrus_tracker report | head -60
+          } >> "$GITHUB_STEP_SUMMARY"

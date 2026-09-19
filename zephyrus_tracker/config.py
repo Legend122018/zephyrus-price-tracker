@@ -38,11 +38,15 @@ DEFAULTS: dict[str, Any] = {
         "city_allowlist": [],     # optional allowlist of city names
     },
     "thresholds": {
-        "heavy_discount_pct": 15.0,      # % off regular price -> "heavy discount"
-        "open_box_discount_pct": 12.0,   # lower bar for open-box/refurb offers
+        # Discounts are always measured against the regular LIST price, so a
+        # sale and an open-box markdown stack. Best Buy open-box Excellent is
+        # routinely ~10% off on its own, which is why the open-box bar sits
+        # well above the new-unit bar -- otherwise every listing would alert.
+        "heavy_discount_pct": 20.0,      # % off list before a NEW unit is notable
+        "open_box_discount_pct": 25.0,   # higher bar: open-box starts discounted
         "price_drop_pct": 5.0,           # drop vs last seen price
-        "price_drop_dollars": 75.0,      # ...or this many dollars
-        "min_drop_dollars": 20.0,        # ignore noise below this
+        "price_drop_dollars": 100.0,     # ...or this many dollars
+        "min_drop_dollars": 40.0,        # ignore noise below this
         "alert_on_all_time_low": True,
         "alert_on_new_product": True,
         "max_price": 0.0,                # 0 = no cap

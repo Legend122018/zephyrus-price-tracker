@@ -66,17 +66,24 @@ with `location.store_ids` if you'd rather not drive to Framingham.
 |---|---|
 | `openbox_restock` | An open-box or refurbished offer **appears or returns** — the one you asked for |
 | `all_time_low` | Price beats every price recorded for that offer |
-| `heavy_discount` | ≥ 15% off list (new) or ≥ 12% (open-box/refurb) — both configurable |
+| `heavy_discount` | ≥ 20% off list (new) or ≥ 25% (open-box/refurb) — both configurable |
 | `price_drop` | Dropped ≥ 5% **or** ≥ $75 since the last check |
 | `boston_pickup` | First time a tracked Boston store has it on the shelf |
 | `new_product` | A Zephyrus SKU Best Buy didn't list before |
+
+Discounts are measured against the regular **list** price, so a sale and an
+open-box markdown stack. Best Buy open-box Excellent is routinely ~10% off on its
+own, so the open-box bar deliberately sits *above* the new-unit bar — set it
+lower and essentially every open-box listing would alert. **Restock alerts
+ignore these numbers entirely**: an open-box unit returning to stock always
+alerts, however modest its discount.
 
 Noise control, all in `[thresholds]` and `[alerts]`:
 
 - **At most two alerts per offer per scan** — one stock event, one price event.
   A genuinely great deal is one alert, not three overlapping ones.
 - **`cooldown_hours = 24`** suppresses repeats of an identical alert.
-- **`min_drop_dollars = 20`** ignores cent-level jitter.
+- **`min_drop_dollars = 40`** ignores jitter — on a $2,000 laptop, $20 is noise.
 - **`max_price`** mutes anything above your budget entirely.
 
 ---
@@ -120,7 +127,9 @@ For something that survives a reboot, pick one:
 - **cron** — `deploy/crontab.example`
 - **systemd timer** — `deploy/zephyrus.service` + `deploy/zephyrus.timer`
 - **GitHub Actions** — `.github/workflows/scan.yml`, runs on GitHub's machines
-  with the price-history database cached between runs. No always-on computer.
+  with the price-history database cached between runs, and attaches an HTML
+  report to every run. No always-on computer. The workflow header lists the
+  secrets to add.
 
 A 30-minute interval across ~20 SKUs is roughly 1,000 API calls/day against a
 50,000/day quota.
@@ -166,8 +175,8 @@ postal_code = "02108"      # your ZIP
 radius_miles = 25
 
 [thresholds]
-heavy_discount_pct    = 15.0   # raise to 25 if 15% off isn't interesting
-open_box_discount_pct = 12.0
+heavy_discount_pct    = 20.0   # lower to 15 if you want to hear about routine sales
+open_box_discount_pct = 25.0   # open-box starts ~10% off, so the bar sits higher
 max_price             = 0      # e.g. 1800 to only hear about sub-$1800 deals
 
 [search]
@@ -206,10 +215,14 @@ database are both gitignored.
 python3 -m unittest discover -s tests -v
 ```
 
-27 tests covering discovery filters, open-box parsing and restock detection,
+29 tests covering discovery filters, open-box parsing and restock detection,
 every alert rule, cooldown suppression, store filtering, change-only history,
-config merging and report rendering. They run against a scripted fake API
-client, so no key and no network are needed.
+config merging, report rendering, and drift between the shipped example config
+and the in-code defaults. They run against a scripted fake API client, so no key
+and no network are needed — which is why CI needs no secrets either.
+
+`.github/workflows/tests.yml` runs them on every push to `main`, on Python 3.11
+and 3.12.
 
 ---
 

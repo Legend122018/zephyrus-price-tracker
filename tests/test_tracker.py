@@ -196,7 +196,7 @@ class TestOpenBox(TrackerTestCase):
 class TestPriceAlerts(TrackerTestCase):
     def test_sale_price_below_threshold_is_a_heavy_discount(self):
         products = copy.deepcopy(BASE_PRODUCTS)
-        products[0]["salePrice"] = 1599.99      # 20% off 1999.99
+        products[0]["salePrice"] = 1449.99      # 27.5% off 1999.99
         result = self.scan(FakeClient(products=products))
         self.assertIn(HEAVY_DISCOUNT, self.kinds(result))
 
@@ -271,7 +271,7 @@ class TestStoreAvailability(TrackerTestCase):
 class TestCooldown(TrackerTestCase):
     def test_repeat_scans_do_not_resend_the_same_alert(self):
         products = copy.deepcopy(BASE_PRODUCTS)
-        products[0]["salePrice"] = 1599.99
+        products[0]["salePrice"] = 1449.99
         client = FakeClient(products=products)
 
         first = Scanner(self.cfg, self.db, client).run(dry_run=False, notifiers=[])
@@ -286,7 +286,7 @@ class TestCooldown(TrackerTestCase):
         cfg = make_config(self.tmp.name, **{"alerts.cooldown_hours": 0})
         cfg.set("storage.database", self.cfg.get("storage.database"))
         products = copy.deepcopy(BASE_PRODUCTS)
-        products[0]["salePrice"] = 1599.99
+        products[0]["salePrice"] = 1449.99
 
         Scanner(cfg, self.db, FakeClient(products=products)).run(dry_run=False, notifiers=[])
         second = Scanner(cfg, self.db, FakeClient(products=products)).run(
@@ -402,6 +402,42 @@ class TestNotificationPayloads(unittest.TestCase):
                       message="m", price=1.0, regular_price=2.0, discount_pct=50.0,
                       url="u", dedupe_key="k")
         self.assertEqual(json.loads(json.dumps(alert.as_dict()))["sku"], "1")
+
+
+class TestShippedConfigExample(unittest.TestCase):
+    """The example config ships twice and restates DEFAULTS -- pin both down."""
+
+    ROOT = Path(__file__).resolve().parent.parent
+    PACKAGE_COPY = ROOT / "zephyrus_tracker" / "config.example.toml"
+    ROOT_COPY = ROOT / "config.example.toml"
+
+    def test_both_copies_are_identical(self):
+        self.assertEqual(
+            self.PACKAGE_COPY.read_text(), self.ROOT_COPY.read_text(),
+            "config.example.toml differs between the repo root and the package; "
+            "the package copy is canonical -- copy it over the root one.",
+        )
+
+    def test_every_documented_value_matches_defaults(self):
+        """A tuned threshold must be changed in config.py AND in the example."""
+        import tomllib
+        with open(self.PACKAGE_COPY, "rb") as fh:
+            example = tomllib.load(fh)
+
+        mismatches = []
+
+        def walk(doc, defaults, path=""):
+            for key, value in doc.items():
+                where = f"{path}{key}"
+                if key not in defaults:
+                    mismatches.append(f"{where}: in the example but not in DEFAULTS")
+                elif isinstance(value, dict):
+                    walk(value, defaults[key], where + ".")
+                elif value != defaults[key]:
+                    mismatches.append(f"{where}: example {value!r} != DEFAULTS {defaults[key]!r}")
+
+        walk(example, DEFAULTS)
+        self.assertEqual(mismatches, [], "config.example.toml has drifted from DEFAULTS")
 
 
 if __name__ == "__main__":

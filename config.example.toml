@@ -45,12 +45,19 @@ store_ids = []
 city_allowlist = []
 
 
+# Discounts are measured against the regular LIST price, so a sale and an
+# open-box markdown stack on top of each other. Best Buy open-box Excellent is
+# routinely ~10% off by itself, which is why the open-box bar sits ABOVE the
+# new-unit bar -- set it lower and essentially every open-box listing alerts.
+#
+# Restock alerts do NOT use these numbers: an open-box unit coming back in
+# stock always alerts, however modest its discount.
 [thresholds]
-heavy_discount_pct    = 15.0   # % off list before a NEW unit counts as a deal
-open_box_discount_pct = 12.0   # lower bar for open-box / refurbished
+heavy_discount_pct    = 20.0   # % off list before a NEW unit counts as a deal
+open_box_discount_pct = 25.0   # open-box / refurbished start discounted already
 price_drop_pct        = 5.0    # drop vs the last observed price...
-price_drop_dollars    = 75.0   # ...or this many dollars, whichever hits first
-min_drop_dollars      = 20.0   # ignore moves smaller than this entirely
+price_drop_dollars    = 100.0  # ...or this many dollars, whichever hits first
+min_drop_dollars      = 40.0   # ignore moves smaller than this entirely
 alert_on_all_time_low = true   # tell me when it beats every price I've recorded
 alert_on_new_product  = true   # tell me when a new Zephyrus SKU shows up
 max_price             = 0      # 0 = no cap. Set e.g. 1800 to mute pricier units.
