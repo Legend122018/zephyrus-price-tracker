@@ -6,7 +6,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .bestbuy import BestBuyClient, BestBuyError
@@ -39,6 +39,10 @@ class ScanResult:
     #: sent nothing -- the first scan has nothing to compare against.
     baseline: bool = False
     capped: int = 0
+    #: Feed backend only: liveness checks performed, and how many of the
+    #: tracked deals are dead.
+    liveness_checked: int = 0
+    expired: int = 0
 
 
 class AlertPipeline:
@@ -414,12 +418,58 @@ class FeedScanner(AlertPipeline):
 
         return True
 
+    def _apply_liveness(self, deals: list) -> tuple[int, int]:
+        """Ask the source whether each deal is still buyable.
+
+        Feed *search* returns postings that expired months ago, so presence in
+        a feed means nothing. Expiry is one-way: once a deal is dead it is
+        never re-checked, which keeps the steady-state cost to new and
+        still-live deals only.
+        """
+        if not self.cfg.get("feeds.check_liveness", True):
+            return (0, 0)
+
+        budget = int(self.cfg.get("feeds.liveness_checks_per_scan", 25))
+        recheck = int(self.cfg.get("feeds.liveness_recheck_hours", 8))
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=recheck)
+        checked = expired_count = 0
+
+        for deal in deals:
+            row = self.db.get_product(deal.uid)
+            if row is not None and row["expired"]:
+                deal.expired = True            # dead stays dead
+                expired_count += 1
+                continue
+
+            stamp = (row["expiry_checked_at"] if row is not None else "") or ""
+            if stamp:
+                try:
+                    if datetime.fromisoformat(stamp) > cutoff:
+                        deal.expired = False   # confirmed live recently enough
+                        continue
+                except ValueError:
+                    pass
+
+            if budget <= 0:
+                continue                       # leave unknown rather than guess
+            deal.expired = self.client.check_expired(deal.url)
+            if deal.expired is not None:
+                checked += 1
+                budget -= 1
+                if deal.expired:
+                    expired_count += 1
+
+        return (checked, expired_count)
+
     def run(self, *, dry_run: bool = False, notifiers: list | None = None) -> ScanResult:
         started = time.monotonic()
         result = ScanResult()
         error: str | None = None
         try:
             deals = self.discover()
+            checked, dead = self._apply_liveness(deals)
+            result.liveness_checked = checked
+            result.expired = sum(1 for d in deals if d.expired)
             products = {d.uid: d.as_product() for d in deals}
             offers = [d.as_offer() for d in deals]
             result.products = len(products)
@@ -428,6 +478,11 @@ class FeedScanner(AlertPipeline):
                 log.warning("No matching deals in any configured feed")
 
             self.process(products, offers, result, dry_run=dry_run, notifiers=notifiers)
+
+            # Persist liveness after upsert, so the rows exist to update.
+            with self.db.tx():
+                for deal in deals:
+                    self.db.set_liveness(deal.uid, deal.expired)
         except Exception as exc:
             error = f"{type(exc).__name__}: {exc}"
             result.errors.append(error)

@@ -532,10 +532,18 @@ FIXTURE = Path(__file__).resolve().parent / "fixtures" / "slickdeals_zephyrus.xm
 class FakeFeedClient:
     """Serves canned feed XML; no network."""
 
-    def __init__(self, deals=None, xml=None):
+    def __init__(self, deals=None, xml=None, expired=None):
         self._deals = deals
         self._xml = xml if xml is not None else FIXTURE.read_text(encoding="utf-8")
+        #: url -> True/False/None, mimicking the source's liveness answer.
+        self._expired = expired or {}
         self.request_count = 0
+        self.liveness_calls = []
+
+    def check_expired(self, url):
+        self.liveness_calls.append(url)
+        self.request_count += 1
+        return self._expired.get(url, False)
 
     def slickdeals(self, query):
         self.request_count += 1
@@ -680,6 +688,82 @@ class TestFeedScanner(TrackerTestCase):
             make_deal("sd-1", "ASUS ROG Zephyrus G14", 1699.0)]))
         self.assertEqual(self.db.observation_count("sd-1", "new"), 2)
         self.assertEqual(self.db.lowest_price("sd-1", "new"), 1699.0)
+
+
+class TestLiveness(TrackerTestCase):
+    """Feed search returns postings that died months ago."""
+
+    def feed_scan(self, client, cfg=None):
+        return FeedScanner(cfg or self.cfg, self.db, client).run(dry_run=True, notifiers=[])
+
+    def test_expired_deals_are_not_available(self):
+        deals = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0),
+                 make_deal("sd-2", "ASUS ROG Zephyrus G16", 1599.0)]
+        client = FakeFeedClient(deals=deals,
+                                expired={"https://slickdeals.net/f/sd-2": True})
+        result = self.feed_scan(client)
+        by_sku = {o.sku: o for o in result.offers}
+        self.assertTrue(by_sku["sd-1"].available)
+        self.assertFalse(by_sku["sd-2"].available)
+        self.assertEqual(result.expired, 1)
+
+    def test_an_expired_deal_is_never_rechecked(self):
+        deals = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)]
+        dead = {"https://slickdeals.net/f/sd-1": True}
+
+        first = FakeFeedClient(deals=deals, expired=dead)
+        self.feed_scan(first)
+        self.assertEqual(len(first.liveness_calls), 1)
+
+        # Expiry is one-way, so the second scan must not spend a request on it.
+        second = FakeFeedClient(deals=deals, expired=dead)
+        self.feed_scan(second)
+        self.assertEqual(second.liveness_calls, [])
+
+    def test_a_live_deal_is_not_rechecked_inside_the_window(self):
+        deals = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)]
+        first = FakeFeedClient(deals=deals)
+        self.feed_scan(first)
+        self.assertEqual(len(first.liveness_calls), 1)
+
+        second = FakeFeedClient(deals=deals)
+        self.feed_scan(second)
+        self.assertEqual(second.liveness_calls, [])
+
+    def test_expired_deals_do_not_raise_a_restock_alert(self):
+        live = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)]
+        self.feed_scan(FakeFeedClient(deals=live))
+
+        # An open-box posting that is already dead must stay silent.
+        deals = live + [make_deal("sd-9", "Open-Box: ASUS ROG Zephyrus G14", 1279.0,
+                                  condition="openbox-listed")]
+        result = self.feed_scan(FakeFeedClient(
+            deals=deals, expired={"https://slickdeals.net/f/sd-9": True}))
+        self.assertNotIn(OPENBOX_RESTOCK, {a.kind for a in result.alerts})
+
+    def test_a_live_open_box_posting_still_alerts(self):
+        live = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)]
+        self.feed_scan(FakeFeedClient(deals=live))
+        deals = live + [make_deal("sd-9", "Open-Box: ASUS ROG Zephyrus G14", 1279.0,
+                                  condition="openbox-listed")]
+        result = self.feed_scan(FakeFeedClient(deals=deals))
+        self.assertIn(OPENBOX_RESTOCK, {a.kind for a in result.alerts})
+
+    def test_the_check_budget_is_respected(self):
+        cfg = make_config(self.tmp.name, **{"feeds.liveness_checks_per_scan": 2})
+        cfg.set("storage.database", self.cfg.get("storage.database"))
+        deals = [make_deal(f"sd-{i}", "ASUS ROG Zephyrus G14", 1900.0 + i)
+                 for i in range(6)]
+        client = FakeFeedClient(deals=deals)
+        self.feed_scan(client, cfg)
+        self.assertEqual(len(client.liveness_calls), 2)
+
+    def test_checking_can_be_switched_off(self):
+        cfg = make_config(self.tmp.name, **{"feeds.check_liveness": False})
+        cfg.set("storage.database", self.cfg.get("storage.database"))
+        client = FakeFeedClient(deals=[make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)])
+        self.feed_scan(client, cfg)
+        self.assertEqual(client.liveness_calls, [])
 
 
 class TestShippedConfigExample(unittest.TestCase):

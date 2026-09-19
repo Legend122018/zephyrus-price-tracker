@@ -71,6 +71,9 @@ class Product:
     #: backend knows it. Distinct from first_seen, which is when WE saw it --
     #: a feed posting can be months old the first time we read it.
     posted_at: str = ""
+    #: True when the source says the deal is dead. Feed search returns long
+    #: expired postings, so this is what separates buyable from historical.
+    expired: bool = False
 
 
 @dataclass

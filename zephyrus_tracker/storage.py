@@ -20,6 +20,8 @@ CREATE TABLE IF NOT EXISTS products (
     image         TEXT DEFAULT '',
     manufacturer  TEXT DEFAULT '',
     posted_at     TEXT DEFAULT '',
+    expired       INTEGER NOT NULL DEFAULT 0,
+    expiry_checked_at TEXT DEFAULT '',
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL
 );
@@ -116,8 +118,14 @@ class Storage:
         database from an earlier version needs the new column added.
         """
         have = {row["name"] for row in self.conn.execute("PRAGMA table_info(products)")}
-        if "posted_at" not in have:
-            self.conn.execute("ALTER TABLE products ADD COLUMN posted_at TEXT DEFAULT ''")
+        for column, ddl in (
+            ("posted_at", "ALTER TABLE products ADD COLUMN posted_at TEXT DEFAULT ''"),
+            ("expired", "ALTER TABLE products ADD COLUMN expired INTEGER NOT NULL DEFAULT 0"),
+            ("expiry_checked_at",
+             "ALTER TABLE products ADD COLUMN expiry_checked_at TEXT DEFAULT ''"),
+        ):
+            if column not in have:
+                self.conn.execute(ddl)
 
     def close(self) -> None:
         self.conn.close()
@@ -160,6 +168,18 @@ class Storage:
                  product.manufacturer, product.posted_at, now, product.sku),
             )
         return is_new
+
+    def get_product(self, sku: str) -> sqlite3.Row | None:
+        return self.conn.execute("SELECT * FROM products WHERE sku=?", (sku,)).fetchone()
+
+    def set_liveness(self, sku: str, expired: bool | None) -> None:
+        """Record the result of a liveness check. None means "not checked"."""
+        if expired is None:
+            return
+        self.conn.execute(
+            "UPDATE products SET expired=?, expiry_checked_at=? WHERE sku=?",
+            (1 if expired else 0, utcnow(), sku),
+        )
 
     def get_products(self) -> list[sqlite3.Row]:
         return list(self.conn.execute("SELECT * FROM products ORDER BY name"))

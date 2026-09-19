@@ -48,6 +48,15 @@ retailers = []
 require_price = true     # skip postings with no parseable price
 max_age_days  = 180      # how far back to record; the first scan is silent
 
+# Feed SEARCH returns postings that expired months ago -- in practice most of
+# what comes back is already dead -- so liveness is checked at the source
+# rather than assumed. Expiry is one-way: a deal is only checked until it
+# expires, after which it is never re-checked, so the steady-state cost is
+# just new and still-live postings.
+check_liveness           = true
+liveness_checks_per_scan = 25   # cap the per-scan request budget
+liveness_recheck_hours   = 8    # how often to re-confirm a still-live deal
+
 
 [search]
 # One Products API query per term; results are merged and de-duplicated.

@@ -17,7 +17,9 @@ listings shortly after someone spots them, which is the bulk of the value.
 
 from __future__ import annotations
 
+import gzip
 import html
+import io
 import logging
 import re
 import ssl
@@ -70,6 +72,9 @@ WAS_PRICE = re.compile(
 
 SLICKDEALS_THREAD = re.compile(r"slickdeals\.net/f/(\d+)")
 
+#: Slickdeals states liveness on the thread page as isExpiredDeal":"Yes"/"No".
+EXPIRED_FLAG = re.compile(r'isExpiredDeal"\s*:\s*("?[A-Za-z]+"?)')
+
 
 @dataclass
 class Deal:
@@ -85,6 +90,9 @@ class Deal:
     image: str = ""
     posted_at: datetime | None = None
     source: str = ""
+    #: True when the source says the deal is dead, False when it says it is
+    #: live, None when we have not checked or cannot tell.
+    expired: bool | None = None
     raw_title: str = field(default="", repr=False)
 
     def as_product(self) -> Product:
@@ -99,6 +107,7 @@ class Deal:
             image=self.image,
             manufacturer="ASUS",
             posted_at=self.posted_at.date().isoformat() if self.posted_at else "",
+            expired=bool(self.expired),
         )
 
     def as_offer(self) -> Offer:
@@ -107,9 +116,9 @@ class Deal:
             condition=self.condition,
             price=self.price,
             regular_price=self.list_price,
-            # A posting stays in the feed while it is live; staleness is
-            # handled by the feed dropping it, which marks the offer gone.
-            available=True,
+            # Feed search returns long-dead postings, so presence in the feed
+            # says nothing about whether the deal can still be bought.
+            available=self.expired is not True,
             url=self.url,
         )
 
@@ -150,10 +159,14 @@ class FeedClient:
             req = urllib.request.Request(url, headers={
                 "User-Agent": self.USER_AGENT,
                 "Accept": "application/rss+xml, application/xml, text/xml, */*",
+                "Accept-Encoding": "gzip",
             })
             try:
                 with urllib.request.urlopen(req, timeout=self.timeout, context=self._ssl) as resp:
-                    return resp.read().decode("utf-8", "replace")
+                    raw = resp.read()
+                    if resp.headers.get("Content-Encoding", "") == "gzip":
+                        raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+                    return raw.decode("utf-8", "replace")
             except urllib.error.HTTPError as exc:
                 # 429 is the common one: public feeds rate-limit by IP.
                 if exc.code in (429, 500, 502, 503, 504):
@@ -178,6 +191,25 @@ class FeedClient:
 
     def feed(self, url: str) -> list[Deal]:
         return self.parse(self.fetch(url), source=_host(url))
+
+    def check_expired(self, url: str) -> bool | None:
+        """Is this posting dead? True/False, or None when we cannot tell.
+
+        Slickdeals states it outright on the thread page. Feed *search* happily
+        returns postings that expired months ago, so without this every dead
+        deal looks live -- which is the whole point of the check.
+        """
+        if not SLICKDEALS_THREAD.search(url or ""):
+            return None
+        try:
+            page = self.fetch(url)
+        except FeedError as exc:
+            log.warning("Liveness check failed for %s: %s", _host(url), exc)
+            return None
+        match = EXPIRED_FLAG.search(page)
+        if not match:
+            return None
+        return match.group(1).strip('"').lower() == "yes"
 
     # ----------------------------------------------------------------- parse
 

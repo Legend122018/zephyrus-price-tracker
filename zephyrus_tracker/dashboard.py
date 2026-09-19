@@ -142,6 +142,21 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
   footer.end{border-top:1px solid var(--line);padding-top:18px;margin-top:22px;
     font-size:12.5px;color:var(--ink-3)}
   .empty{padding:26px 16px;text-align:center;color:var(--ink-2);font-size:14px}
+  .live-list{display:grid;gap:10px}
+  .live{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;
+    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--good);
+    border-radius:9px;padding:13px 15px;box-shadow:var(--shadow)}
+  .live .lp{font-family:var(--mono);font-size:18px;font-weight:600;
+    font-variant-numeric:tabular-nums;white-space:nowrap}
+  .live .ln{font-size:13.5px;line-height:1.4;min-width:0}
+  .live .lm{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);margin-top:2px}
+  .live a{color:var(--accent);text-decoration:none;font-weight:600;font-size:13px;white-space:nowrap}
+  .none{background:var(--surface);border:1px solid var(--line);border-radius:9px;
+    padding:18px 16px;color:var(--ink-2);font-size:14px}
+  .none b{color:var(--ink)}
+  .gone{opacity:.62}
+  .pill.exp{color:var(--ink-3)}
+  @media (max-width:560px){.live{grid-template-columns:1fr;gap:8px}}
   @media (max-width:640px){
     .strip{grid-template-columns:repeat(2,1fr)}
     .bands{grid-template-columns:1fr}
@@ -160,11 +175,16 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
   <div class="hero">
     <h1>What a Zephyrus has actually cost.</h1>
     <p class="lede">Every ASUS ROG Zephyrus deal the tracker has picked up, <b>__SPAN__</b>.
-      Regenerated on every scan &mdash; use it to judge whether the price in front of
-      you is any good.</p>
+      Regenerated on every scan. Liveness is checked at the source, so expired
+      postings are kept as price history but never shown as buyable.</p>
     <p class="freshness" id="freshness">__SCANNOTE__</p>
     <dl class="strip" id="stats"></dl>
   </div>
+
+  <section>
+    <h2>Available right now</h2>
+    <div id="liveNow"></div>
+  </section>
 
   <section>
     <h2>Price landscape</h2>
@@ -189,6 +209,8 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
       <ul class="legend">
         <li><span class="key" style="background:var(--s-new)"></span>New</li>
         <li><span class="key" style="background:var(--s-ob)"></span>Open-box</li>
+        <li><span class="key" style="background:var(--surface);
+          box-shadow:inset 0 0 0 2px var(--ink-3)"></span>Hollow = expired</li>
       </ul>
     </div>
   </section>
@@ -222,6 +244,10 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
       <div class="note"><span class="bul"></span><div><b>Coverage is partial.</b> This is what
         the deal community posted, not Best Buy's full inventory &mdash; there were quiet
         stretches where nothing was posted rather than nothing being on sale.</div></div>
+      <div class="note"><span class="bul"></span><div><b>Expired deals are kept on purpose.</b>
+        Most postings are dead within weeks, and the tracker asks the source rather than
+        guessing. They are hollow on the chart and greyed in the table; they are worth
+        keeping because they show what a Zephyrus has genuinely sold for.</div></div>
       <div class="note"><span class="bul"></span><div><b>This page is rebuilt by the scan.</b>
         The tracker rewrites it every time it runs, so the timestamp in the header is how
         fresh the figures are. If it stops moving, the scan has stopped.</div></div>
@@ -261,10 +287,13 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     var ob = ROWS.filter(function (r) { return r.openBox; });
     var obLow = ob.length ? Math.min.apply(null, ob.map(function (r) { return r.price; })) : null;
     var nw = ROWS.filter(function (r) { return !r.openBox; }).map(function (r) { return r.price; });
+    var live = ROWS.filter(function (r) { return !r.expired; });
+    // Lead with what can actually be bought: the feed is mostly dead postings,
+    // so a raw "deals tracked" count overstates what is available by ~5x.
     var tiles = [
-      ["Deals tracked", ROWS.length, false],
-      ["Open-box seen", ob.length, false],
-      ["Lowest open-box", obLow === null ? "—" : usd(obLow), true],
+      ["Live right now", live.length, live.length > 0],
+      ["Expired (history)", ROWS.length - live.length, false],
+      ["Lowest open-box ever", obLow === null ? "—" : usd(obLow), false],
       ["Median new price", nw.length ? usd(median(nw)) : "—", false]
     ];
     document.getElementById("stats").innerHTML = tiles.map(function (t) {
@@ -329,10 +358,13 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
       stroke: "var(--line)", "stroke-width": 1 }));
 
     rows.forEach(function (r) {
+      var hue = r.openBox ? "var(--s-ob)" : "var(--s-new)";
+      // Hollow = expired. Fill carries buyability, hue carries condition, so
+      // neither meaning depends on the other.
       var c = el("circle", {
-        cx: px(days(r.posted)), cy: py(r.price), r: 5.5,
-        fill: r.openBox ? "var(--s-ob)" : "var(--s-new)",
-        stroke: "var(--surface)", "stroke-width": 2, "data-id": r.id
+        cx: px(days(r.posted)), cy: py(r.price), r: r.expired ? 4.5 : 5.5,
+        fill: r.expired ? "var(--surface)" : hue,
+        stroke: hue, "stroke-width": 2, "data-id": r.id
       });
       c.style.cursor = "pointer";
       plot.appendChild(c);
@@ -351,7 +383,8 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     var r = ROWS.filter(function (x) { return x.id === t.getAttribute("data-id"); })[0];
     if (!r) return;
     tip.innerHTML = '<div class="d">' + r.posted + " &middot; " + r.model + " &middot; " +
-      (r.openBox ? "Open-box" : "New") + '</div><div class="p">' + usd2(r.price) +
+      (r.openBox ? "Open-box" : "New") + (r.expired ? " &middot; EXPIRED" : "") +
+      '</div><div class="p">' + usd2(r.price) +
       '</div><div class="n">' + r.name.replace(/[<>]/g, "") + "</div>";
     tip.style.opacity = 1;
     var host = plot.parentNode.parentNode.getBoundingClientRect();
@@ -399,11 +432,12 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     }
     body.innerHTML = rows.map(function (r) {
       var colour = r.openBox ? "var(--s-ob)" : "var(--s-new)";
-      return "<tr>" +
+      return '<tr class="' + (r.expired ? "gone" : "") + '">' +
         '<td><span class="when">' + r.posted + "</span></td>" +
         '<td><span class="mdl">' + r.model + "</span></td>" +
         '<td><span class="pill"><span class="key" style="background:' + colour + '"></span>' +
-          (r.openBox ? "Open-box" : "New") + "</span></td>" +
+          (r.openBox ? "Open-box" : "New") + "</span>" +
+          (r.expired ? ' <span class="pill exp">Expired</span>' : "") + "</td>" +
         '<td class="r"><span class="price">' + usd2(r.price) + "</span></td>" +
         '<td class="name">' + r.name.replace(/[<>]/g, "") + "</td>" +
         '<td><a href="' + r.url + '" target="_blank" rel="noopener">View &rarr;</a></td>' +
@@ -411,7 +445,27 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     }).join("");
   }
 
-  function renderAll() { renderChart(); renderBands(); renderTable(); }
+  function renderLive() {
+    var live = ROWS.filter(function (r) { return !r.expired; })
+      .sort(function (a, b) { return a.price - b.price; });
+    var host = document.getElementById("liveNow");
+    if (!live.length) {
+      host.innerHTML = '<div class="none"><b>Nothing is currently buyable.</b> ' +
+        "Every deal below has expired at the source. That is normal &mdash; " +
+        "Zephyrus postings are infrequent, and the tracker will push an alert " +
+        "to your phone when a new one appears.</div>";
+      return;
+    }
+    host.innerHTML = '<div class="live-list">' + live.map(function (r) {
+      return '<div class="live"><span class="lp">' + usd2(r.price) + "</span>" +
+        '<div class="ln">' + r.name.replace(/[<>]/g, "") +
+        '<div class="lm">' + r.model + " &middot; " + (r.openBox ? "open-box" : "new") +
+        " &middot; posted " + r.posted + "</div></div>" +
+        '<a href="' + r.url + '" target="_blank" rel="noopener">Open &rarr;</a></div>';
+    }).join("") + "</div>";
+  }
+
+  function renderAll() { renderLive(); renderChart(); renderBands(); renderTable(); }
 
   Array.prototype.forEach.call(document.querySelectorAll(".chip"), function (c) {
     c.addEventListener("click", function () {
@@ -472,7 +526,7 @@ def collect(db) -> list[dict]:
                            or state["condition"] in ("refurbished", "pre-owned"),
                 "price": state["price"],
                 "list": state["regular_price"],
-                "available": bool(state["available"]),
+                "expired": bool(product["expired"]),
             })
     rows.sort(key=lambda r: r["posted"])
     return rows

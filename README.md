@@ -247,6 +247,12 @@ gitignored.
 
 ## Worth knowing
 
+- **Most of what a feed returns is already dead.** Feed *search* happily
+  returns postings that expired months ago — on a live sample, 14 of 17 tracked
+  Zephyrus deals were expired. The tracker asks the source whether each posting
+  is still live rather than assuming, marks the dead ones, and never alerts on
+  them. They are kept as price history, because they show what a Zephyrus has
+  genuinely sold for.
 - **The `feeds` backend will be quiet.** Zephyrus open-box postings surface
   every 4–8 weeks in the feeds, against Best Buy inventory that turns over
   daily. Quiet is the expected state, not a malfunction.
@@ -270,11 +276,12 @@ gitignored.
 python3 -m unittest discover -s tests -v
 ```
 
-58 tests, no network and no credentials required: discovery filters, open-box
+65 tests, no network and no credentials required: discovery filters, open-box
 parsing and restock detection, every alert rule, first-scan baseline behaviour,
 flood capping, cooldown suppression, store filtering, change-only history,
-config merging, report and dashboard rendering, schema migration, and drift
-between the shipped example config and the in-code defaults. Feed parsing is tested against a real Slickdeals
+config merging, report and dashboard rendering, schema migration, liveness
+checking and its request budget, and drift between the shipped example config
+and the in-code defaults. Feed parsing is tested against a real Slickdeals
 response saved in `tests/fixtures/`.
 
 `.github/workflows/tests.yml` runs them on every push, on Python 3.11 and 3.12.

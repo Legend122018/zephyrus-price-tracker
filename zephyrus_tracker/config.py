@@ -34,6 +34,12 @@ DEFAULTS: dict[str, Any] = {
         # the first scan records it all silently as a baseline, which gives
         # the report real context for judging whether a new deal is good.
         "max_age_days": 180,
+        # Feed search returns postings that died months ago, so liveness is
+        # checked at the source. Expiry is one-way, so a deal is only ever
+        # checked until it expires -- the steady-state cost is small.
+        "check_liveness": True,
+        "liveness_checks_per_scan": 25,
+        "liveness_recheck_hours": 8,
     },
     "bestbuy": {
         "api_key": "",

@@ -216,6 +216,9 @@ def cmd_scan(args, cfg: Config) -> int:
             summary += f", {result.suppressed} suppressed by cooldown"
         if result.capped:
             summary += f", {result.capped} withheld by alerts.max_per_scan"
+        if result.expired:
+            summary += (f" [{result.products - result.expired} live, "
+                        f"{result.expired} expired; {result.liveness_checked} checked]")
         print(summary)
 
         if args.dry_run and result.alerts:
