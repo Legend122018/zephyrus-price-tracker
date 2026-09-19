@@ -18,7 +18,7 @@ from zephyrus_tracker.detect import (
     ALL_TIME_LOW, BOSTON_PICKUP, HEAVY_DISCOUNT, OPENBOX_RESTOCK, PRICE_DROP, Detector,
 )
 from zephyrus_tracker.feeds import Deal, FeedClient, _last_price
-from zephyrus_tracker.models import Offer, Product
+from zephyrus_tracker.models import EXPIRED, LIVE, UNVERIFIED, Offer, Product, liveness_state
 from zephyrus_tracker.dashboard import collect, render as render_dashboard
 from zephyrus_tracker.report import console_report, html_report
 from zephyrus_tracker.scan import FeedScanner, Scanner, _has_keyword
@@ -474,6 +474,11 @@ class TestDashboard(TrackerTestCase):
         self.assertTrue(any(r["openBox"] for r in rows))
         self.assertTrue(any(not r["openBox"] for r in rows))
 
+    def test_every_row_carries_a_liveness_state(self):
+        self.build()
+        for row in collect(self.db):
+            self.assertIn(row["state"], (LIVE, UNVERIFIED, EXPIRED))
+
     def test_rows_are_ordered_oldest_first(self):
         self.build()
         dates = [r["posted"] for r in collect(self.db)]
@@ -764,6 +769,35 @@ class TestLiveness(TrackerTestCase):
         client = FakeFeedClient(deals=[make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)])
         self.feed_scan(client, cfg)
         self.assertEqual(client.liveness_calls, [])
+
+
+class TestLivenessState(unittest.TestCase):
+    """Deal sites mark expiry late, so age is evidence against an old listing."""
+
+    TODAY = "2026-09-19"
+
+    def test_marked_expired_wins_regardless_of_age(self):
+        self.assertEqual(liveness_state(True, "2026-09-19", today=self.TODAY), EXPIRED)
+
+    def test_recent_and_unmarked_is_live(self):
+        self.assertEqual(liveness_state(False, "2026-09-10", today=self.TODAY), LIVE)
+
+    def test_old_and_unmarked_is_unverified_not_live(self):
+        # The real case this exists for: a posting open since June that the
+        # source has never marked dead. Reporting that as "in stock" is a lie.
+        self.assertEqual(liveness_state(False, "2026-06-07", today=self.TODAY), UNVERIFIED)
+
+    def test_boundary_is_inclusive_of_the_window(self):
+        self.assertEqual(liveness_state(False, "2026-08-20", today=self.TODAY), LIVE)
+        self.assertEqual(liveness_state(False, "2026-08-19", today=self.TODAY), UNVERIFIED)
+
+    def test_missing_or_unparseable_date_does_not_crash(self):
+        self.assertEqual(liveness_state(False, "", today=self.TODAY), LIVE)
+        self.assertEqual(liveness_state(False, "not-a-date", today=self.TODAY), LIVE)
+
+    def test_window_can_be_disabled(self):
+        self.assertEqual(
+            liveness_state(False, "2020-01-01", stale_after_days=0, today=self.TODAY), LIVE)
 
 
 class TestShippedConfigExample(unittest.TestCase):

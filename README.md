@@ -247,6 +247,28 @@ gitignored.
 
 ## Worth knowing
 
+### How reliable is "in stock"?
+
+Honestly: only the `bestbuy` backend can answer it. Best Buy's API has a
+real-time per-store availability endpoint; nothing else does. Best Buy's own
+site actively refuses automated requests (the connection is reset mid-stream by
+bot protection), and scraping it would be both against their terms and
+unreliable — so the tracker does not try.
+
+On the `feeds` backend, every listing is therefore classified into three states
+rather than a made-up yes/no:
+
+| State | Meaning |
+|---|---|
+| **Likely in stock** | The source has not marked it expired, and the posting is recent |
+| **Unverified** | Not marked expired, but old enough that nobody has checked — genuinely unknown |
+| **Expired** | The source says the deal is dead |
+
+The middle state exists because deal sites mark expiry only when a human gets
+round to it, so "not expired" is strong evidence on a fresh posting and weak
+evidence on a three-month-old one. Calling both "in stock" would be a guess
+dressed up as a fact. Tune the cutoff with `feeds.stale_after_days`.
+
 - **Most of what a feed returns is already dead.** Feed *search* happily
   returns postings that expired months ago — on a live sample, 14 of 17 tracked
   Zephyrus deals were expired. The tracker asks the source whether each posting
@@ -276,11 +298,11 @@ gitignored.
 python3 -m unittest discover -s tests -v
 ```
 
-65 tests, no network and no credentials required: discovery filters, open-box
+72 tests, no network and no credentials required: discovery filters, open-box
 parsing and restock detection, every alert rule, first-scan baseline behaviour,
 flood capping, cooldown suppression, store filtering, change-only history,
 config merging, report and dashboard rendering, schema migration, liveness
-checking and its request budget, and drift between the shipped example config
+checking with its request budget and three-state classification, and drift between the shipped example config
 and the in-code defaults. Feed parsing is tested against a real Slickdeals
 response saved in `tests/fixtures/`.
 

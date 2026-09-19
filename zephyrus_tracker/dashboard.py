@@ -12,7 +12,7 @@ import datetime
 import json
 from pathlib import Path
 
-from .models import condition_label, is_open_box
+from .models import EXPIRED, LIVE, UNVERIFIED, condition_label, is_open_box, liveness_state
 
 TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -24,7 +24,7 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     --ground:#f4f6f9; --surface:#fff; --surface-2:#eef1f6; --line:#dde3ec;
     --ink:#10151d; --ink-2:#586273; --ink-3:#8790a1;
     --accent:#2a78d6; --s-new:#2a78d6; --s-ob:#eb6834;
-    --good:#0ca30c; --good-bg:#e9f7e9; --good-line:#b6e3b6;
+    --good:#0ca30c; --good-bg:#e9f7e9; --good-line:#b6e3b6; --warn:#fab219;
     --shadow:0 1px 2px rgba(16,21,29,.06),0 8px 24px -12px rgba(16,21,29,.18);
     --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
     --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
@@ -35,7 +35,7 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
       --ground:#0d1117; --surface:#161b23; --surface-2:#1c222c; --line:#29313d;
       --ink:#e9edf4; --ink-2:#9aa4b4; --ink-3:#6e7888;
       --accent:#3987e5; --s-new:#3987e5; --s-ob:#d95926;
-      --good:#0ca30c; --good-bg:#14261a; --good-line:#255a28;
+      --good:#0ca30c; --good-bg:#14261a; --good-line:#255a28; --warn:#fab219;
       --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
     }
   }
@@ -44,7 +44,7 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     --ground:#0d1117; --surface:#161b23; --surface-2:#1c222c; --line:#29313d;
     --ink:#e9edf4; --ink-2:#9aa4b4; --ink-3:#6e7888;
     --accent:#3987e5; --s-new:#3987e5; --s-ob:#d95926;
-    --good:#0ca30c; --good-bg:#14261a; --good-line:#255a28;
+    --good:#0ca30c; --good-bg:#14261a; --good-line:#255a28; --warn:#fab219;
     --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.6);
   }
   *{box-sizing:border-box}
@@ -144,8 +144,13 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
   .empty{padding:26px 16px;text-align:center;color:var(--ink-2);font-size:14px}
   .live-list{display:grid;gap:10px}
   .live{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;
-    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--good);
+    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--ink-3);
     border-radius:9px;padding:13px 15px;box-shadow:var(--shadow)}
+  .live.yes{border-left-color:var(--good)}
+  .live.maybe{border-left-color:var(--warn)}
+  .subhead{font-family:var(--mono);font-size:11px;letter-spacing:.07em;
+    text-transform:uppercase;color:var(--ink-3);margin:20px 0 4px;font-weight:600}
+  .subnote{font-size:12.5px;color:var(--ink-2);margin:0 0 10px;max-width:64ch}
   .live .lp{font-family:var(--mono);font-size:18px;font-weight:600;
     font-variant-numeric:tabular-nums;white-space:nowrap}
   .live .ln{font-size:13.5px;line-height:1.4;min-width:0}
@@ -287,12 +292,14 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     var ob = ROWS.filter(function (r) { return r.openBox; });
     var obLow = ob.length ? Math.min.apply(null, ob.map(function (r) { return r.price; })) : null;
     var nw = ROWS.filter(function (r) { return !r.openBox; }).map(function (r) { return r.price; });
-    var live = ROWS.filter(function (r) { return !r.expired; });
-    // Lead with what can actually be bought: the feed is mostly dead postings,
-    // so a raw "deals tracked" count overstates what is available by ~5x.
+    var live = ROWS.filter(function (r) { return r.state === "live"; });
+    var unver = ROWS.filter(function (r) { return r.state === "unverified"; });
+    // Lead with what can actually be bought. "Unverified" is its own count on
+    // purpose: nobody can check a retailer's stock without its API, so an old
+    // unmarked posting is reported as unknown rather than as in stock.
     var tiles = [
-      ["Live right now", live.length, live.length > 0],
-      ["Expired (history)", ROWS.length - live.length, false],
+      ["Likely in stock", live.length, live.length > 0],
+      ["Unverified", unver.length, false],
       ["Lowest open-box ever", obLow === null ? "—" : usd(obLow), false],
       ["Median new price", nw.length ? usd(median(nw)) : "—", false]
     ];
@@ -445,24 +452,46 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     }).join("");
   }
 
+  function card(r, cls) {
+    return '<div class="live ' + cls + '"><span class="lp">' + usd2(r.price) + "</span>" +
+      '<div class="ln">' + r.name.replace(/[<>]/g, "") +
+      '<div class="lm">' + r.model + " &middot; " + (r.openBox ? "open-box" : "new") +
+      " &middot; posted " + r.posted +
+      (cls === "maybe" ? " &middot; unconfirmed for " +
+        Math.round((Date.now() - Date.parse(r.posted + "T00:00:00Z")) / 86400000) +
+        " days" : "") +
+      "</div></div>" +
+      '<a href="' + r.url + '" target="_blank" rel="noopener">Check &rarr;</a></div>';
+  }
+
   function renderLive() {
-    var live = ROWS.filter(function (r) { return !r.expired; })
+    var live = ROWS.filter(function (r) { return r.state === "live"; })
+      .sort(function (a, b) { return a.price - b.price; });
+    var maybe = ROWS.filter(function (r) { return r.state === "unverified"; })
       .sort(function (a, b) { return a.price - b.price; });
     var host = document.getElementById("liveNow");
-    if (!live.length) {
-      host.innerHTML = '<div class="none"><b>Nothing is currently buyable.</b> ' +
-        "Every deal below has expired at the source. That is normal &mdash; " +
-        "Zephyrus postings are infrequent, and the tracker will push an alert " +
-        "to your phone when a new one appears.</div>";
-      return;
+    var out = "";
+
+    if (live.length) {
+      out += '<div class="live-list">' +
+        live.map(function (r) { return card(r, "yes"); }).join("") + "</div>";
+    } else {
+      out += '<div class="none"><b>Nothing is confirmed in stock.</b> ' +
+        "No recent posting is still open at the source. That is normal &mdash; " +
+        "Zephyrus deals are infrequent, and you will get a push alert when one " +
+        "appears.</div>";
     }
-    host.innerHTML = '<div class="live-list">' + live.map(function (r) {
-      return '<div class="live"><span class="lp">' + usd2(r.price) + "</span>" +
-        '<div class="ln">' + r.name.replace(/[<>]/g, "") +
-        '<div class="lm">' + r.model + " &middot; " + (r.openBox ? "open-box" : "new") +
-        " &middot; posted " + r.posted + "</div></div>" +
-        '<a href="' + r.url + '" target="_blank" rel="noopener">Open &rarr;</a></div>';
-    }).join("") + "</div>";
+
+    if (maybe.length) {
+      out += '<p class="subhead">Possibly still available &mdash; unconfirmed</p>' +
+        '<p class="subnote">The source has not marked these dead, but they are ' +
+        "old enough that nobody has checked recently. No retailer allows an " +
+        "automated stock check without an API key, so these are worth a click " +
+        "rather than a trust.</p>" +
+        '<div class="live-list">' +
+        maybe.map(function (r) { return card(r, "maybe"); }).join("") + "</div>";
+    }
+    host.innerHTML = out;
   }
 
   function renderAll() { renderLive(); renderChart(); renderBands(); renderTable(); }
@@ -501,7 +530,7 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
 """
 
 
-def collect(db) -> list[dict]:
+def collect(db, *, stale_after_days: int = 30) -> list[dict]:
     """Every tracked offer, flattened for the page."""
     rows: list[dict] = []
     for product in db.get_products():
@@ -527,6 +556,8 @@ def collect(db) -> list[dict]:
                 "price": state["price"],
                 "list": state["regular_price"],
                 "expired": bool(product["expired"]),
+                "state": liveness_state(bool(product["expired"]), posted,
+                                        stale_after_days=stale_after_days),
             })
     rows.sort(key=lambda r: r["posted"])
     return rows
@@ -534,7 +565,8 @@ def collect(db) -> list[dict]:
 
 def render(db, out_path: str | Path, config=None) -> Path:
     """Write the dashboard. Returns the path written."""
-    rows = collect(db)
+    stale_after = int(config.get("feeds.stale_after_days", 30)) if config else 30
+    rows = collect(db, stale_after_days=stale_after)
     generated = datetime.datetime.now().strftime("%-d %b %Y, %H:%M")
     if rows:
         span = f'{rows[0]["posted"]} to {rows[-1]["posted"]}'

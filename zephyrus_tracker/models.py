@@ -57,6 +57,35 @@ def is_open_box(condition: str) -> bool:
     return condition.startswith(OPEN_BOX_PREFIX)
 
 
+#: How confident we are that a listing can actually be bought right now.
+LIVE = "live"              # source says not expired, and the posting is recent
+UNVERIFIED = "unverified"  # source says not expired, but the posting is old
+EXPIRED = "expired"        # source says the deal is dead
+
+
+def liveness_state(expired: bool, posted_at: str, *, stale_after_days: int = 30,
+                   today: str | None = None) -> str:
+    """Classify a listing's buyability.
+
+    Deal sites mark a posting expired when a human gets round to it, so
+    "not expired" is weak evidence on an old posting and strong evidence on a
+    fresh one. Rather than present both as "in stock", an old-but-unmarked
+    posting is reported as UNVERIFIED -- the honest answer, given no retailer
+    permits an automated stock check without its API.
+    """
+    if expired:
+        return EXPIRED
+    if not posted_at or stale_after_days <= 0:
+        return LIVE
+    import datetime as _dt
+    try:
+        posted = _dt.date.fromisoformat(posted_at[:10])
+    except ValueError:
+        return LIVE
+    now = _dt.date.fromisoformat(today) if today else _dt.date.today()
+    return UNVERIFIED if (now - posted).days > stale_after_days else LIVE
+
+
 @dataclass
 class Product:
     """A tracked SKU, independent of any particular offer on it."""

@@ -57,6 +57,11 @@ check_liveness           = true
 liveness_checks_per_scan = 25   # cap the per-scan request budget
 liveness_recheck_hours   = 8    # how often to re-confirm a still-live deal
 
+# No retailer allows an automated stock check without its API, so an old
+# posting the source has not marked dead is genuinely unknown rather than
+# in stock. Past this age it is reported as "unverified", not "available".
+stale_after_days         = 30
+
 
 [search]
 # One Products API query per term; results are merged and de-duplicated.

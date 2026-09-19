@@ -40,6 +40,10 @@ DEFAULTS: dict[str, Any] = {
         "check_liveness": True,
         "liveness_checks_per_scan": 25,
         "liveness_recheck_hours": 8,
+        # A posting older than this that the source has not marked expired is
+        # reported as "unverified" rather than "in stock" -- deal sites mark
+        # expiry late, so age is real evidence against an unmarked listing.
+        "stale_after_days": 30,
     },
     "bestbuy": {
         "api_key": "",
