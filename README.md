@@ -129,7 +129,9 @@ For something that survives a reboot, pick one:
 - **GitHub Actions** — `.github/workflows/scan.yml`, runs on GitHub's machines
   with the price-history database cached between runs, and attaches an HTML
   report to every run. No always-on computer. The workflow header lists the
-  secrets to add.
+  secrets to add; until `BESTBUY_API_KEY` exists the scheduled runs finish green
+  with a note telling you where to add it, rather than failing and mailing you
+  every half hour.
 
 A 30-minute interval across ~20 SKUs is roughly 1,000 API calls/day against a
 50,000/day quota.
