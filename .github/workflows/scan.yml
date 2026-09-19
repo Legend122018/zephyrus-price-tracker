@@ -30,6 +30,11 @@ on:
     # window shifts an hour with daylight saving. Widen it if you care.
     - cron: "*/30 11-23,0-3 * * *"
   workflow_dispatch:
+    inputs:
+      test_alert:
+        description: "Send a test alert instead of scanning (checks ntfy/webhook/email)"
+        type: boolean
+        default: false
 
 concurrency:
   group: zephyrus-scan
@@ -86,8 +91,22 @@ jobs:
             echo "::notice::running the $backend backend."
           fi
 
+      - name: Send test alert
+        if: inputs.test_alert
+        env:
+          ZEPHYRUS_NTFY_TOPIC: ${{ secrets.ZEPHYRUS_NTFY_TOPIC }}
+          ZEPHYRUS_WEBHOOK_URL: ${{ secrets.ZEPHYRUS_WEBHOOK_URL }}
+          ZEPHYRUS_SMTP_PASSWORD: ${{ secrets.ZEPHYRUS_SMTP_PASSWORD }}
+        run: |
+          if [ -z "$ZEPHYRUS_NTFY_TOPIC" ] && [ -z "$ZEPHYRUS_WEBHOOK_URL" ]; then
+            echo "::error::No notification secret is set, so a test alert can only"
+            echo "::error::reach the console. Add ZEPHYRUS_NTFY_TOPIC first."
+            exit 1
+          fi
+          python -m zephyrus_tracker test-alert
+
       - name: Scan
-        if: steps.guard.outputs.configured == 'true'
+        if: steps.guard.outputs.configured == 'true' && !inputs.test_alert
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
           ZEPHYRUS_BACKEND: ${{ vars.ZEPHYRUS_BACKEND }}
@@ -98,20 +117,20 @@ jobs:
 
       # Save first, so a failure in report generation never costs you history.
       - name: Save price history
-        if: always() && steps.guard.outputs.configured == 'true'
+        if: always() && steps.guard.outputs.configured == 'true' && !inputs.test_alert
         uses: actions/cache/save@v5
         with:
           path: zephyrus.db
           key: zephyrus-db-${{ github.run_id }}
 
       - name: Build HTML report
-        if: always() && steps.guard.outputs.configured == 'true'
+        if: always() && steps.guard.outputs.configured == 'true' && !inputs.test_alert
         run: python -m zephyrus_tracker report --html report.html
 
       # Download this from the run's summary page to see current prices and
       # full history without cloning anything.
       - name: Upload report
-        if: always() && steps.guard.outputs.configured == 'true'
+        if: always() && steps.guard.outputs.configured == 'true' && !inputs.test_alert
         uses: actions/upload-artifact@v6
         with:
           name: zephyrus-report
@@ -119,7 +138,7 @@ jobs:
           retention-days: 14
 
       - name: Summary
-        if: always() && steps.guard.outputs.configured == 'true'
+        if: always() && steps.guard.outputs.configured == 'true' && !inputs.test_alert
         run: |
           {
             echo "### Zephyrus scan"

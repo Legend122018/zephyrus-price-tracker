@@ -143,6 +143,11 @@ and an `alerts.jsonl` audit log.
 python3 -m zephyrus_tracker test-alert   # sends a sample through every channel
 ```
 
+On GitHub Actions the same check is one click: **Actions > Zephyrus price scan >
+Run workflow**, tick **Send a test alert**. It sends a sample through whichever
+channels the repository secrets configure and skips the scan entirely, so you can
+confirm alerts reach your phone without waiting for a real deal.
+
 A failing channel never blocks the others, and never blocks the scan.
 
 ---
