@@ -180,7 +180,10 @@ def html_report(db, out_path: str | Path, config=None) -> Path:
     rows = _rows_for_report(db)
     heavy = float(config.get("thresholds.heavy_discount_pct", 15.0)) if config else 15.0
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
-    stores = db.get_stores()
+    # On the deal-feed backend the listings come from whichever retailer
+    # posted them, and there is no store data at all.
+    feeds_backend = bool(config) and getattr(config, "backend", "bestbuy") == "feeds"
+    stores = [] if feeds_backend else db.get_stores()
     last = db.last_scan()
 
     cards = []
@@ -212,7 +215,8 @@ def html_report(db, out_path: str | Path, config=None) -> Path:
 
         image = (f'<img src="{html.escape(product["image"])}" alt="" loading="lazy">'
                  if product["image"] else "")
-        link = (f'<a href="{html.escape(product["url"])}">View on Best Buy &rarr;</a>'
+        link_text = "View deal &rarr;" if feeds_backend else "View on Best Buy &rarr;"
+        link = (f'<a href="{html.escape(product["url"])}">{link_text}</a>'
                 if product["url"] else "")
         cards.append(f"""
         <section class="card">
@@ -237,6 +241,7 @@ def html_report(db, out_path: str | Path, config=None) -> Path:
         </section>""")
 
     store_list = ", ".join(f"{html.escape(s['name'])} ({html.escape(s['city'])})" for s in stores[:12])
+    store_line = f"<br>Stores tracked: {store_list}" if store_list else ""
     scan_line = (f"{last['products']} products &middot; {last['offers']} offers &middot; "
                  f"{last['alerts']} alerts &middot; {last['api_requests']} API calls"
                  if last else "no scans yet")
@@ -317,9 +322,8 @@ def html_report(db, out_path: str | Path, config=None) -> Path:
   }}
 </style></head>
 <body><div class="wrap">
-  <h1>ASUS Zephyrus &mdash; Best Buy price report</h1>
-  <p class="sub">Generated {generated} &middot; {scan_line}<br>
-     Stores tracked: {store_list or 'none resolved yet'}</p>
+  <h1>ASUS Zephyrus &mdash; {'deal report' if feeds_backend else 'Best Buy price report'}</h1>
+  <p class="sub">Generated {generated} &middot; {scan_line}{store_line}</p>
   {''.join(cards) or '<p class="dim">No products tracked yet. Run a scan first.</p>'}
   <footer>
     A green end marker means the offer is at the lowest price we've recorded; otherwise

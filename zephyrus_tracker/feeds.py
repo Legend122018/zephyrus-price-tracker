@@ -309,6 +309,9 @@ def _uid(link: str, title: str, source: str) -> str:
 def _clean_title(title: str) -> str:
     """Drop the trailing price and tracking noise from a feed title."""
     cleaned = re.sub(r"\s*[-–—]?\s*\$\s?[\d,]+(?:\.\d{1,2})?\s*$", "", title).strip()
+    # Posters also put the price up front: "$1575 FS BEST BUY ASUS - ROG ...".
+    cleaned = re.sub(r"^\$\s?[\d,]+(?:\.\d{1,2})?\s*(?:FS\b)?\s*[:,-]?\s*", "",
+                     cleaned, flags=re.I).strip()
     return (cleaned or title)[:180]
 
 
