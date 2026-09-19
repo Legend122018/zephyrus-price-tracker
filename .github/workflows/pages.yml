@@ -1,0 +1,74 @@
+# Publishes the dashboard to GitHub Pages after every scan, so the page is as
+# fresh as the last run.
+#
+# SETUP: make this repository public. That is all -- Pages itself is switched
+# on automatically by the configure-pages step below.
+#
+# GitHub Pages cannot serve a PRIVATE repository on the free plan, so the job
+# stays inert while the repo is private rather than failing after every scan.
+# Note that a Pages site is publicly reachable on every plan.
+name: Publish dashboard
+
+on:
+  workflow_run:
+    workflows: ["Zephyrus price scan"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Never let two deploys race; the newest data is the one worth publishing.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      # The scan workflow writes this cache; restore-keys picks its newest.
+      - name: Restore price history
+        uses: actions/cache/restore@v5
+        with:
+          path: zephyrus.db
+          key: zephyrus-db-pages-${{ github.run_id }}
+          restore-keys: zephyrus-db-
+
+      - name: Build dashboard
+        run: python -m zephyrus_tracker dashboard --out site/index.html --allow-empty
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v6
+        with:
+          enablement: true
+
+      - name: Upload
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: site
+
+      - name: Deploy
+        id: deploy
+        uses: actions/deploy-pages@v5
+
+      - name: Summary
+        run: |
+          {
+            echo "### Dashboard published"
+            echo ""
+            echo "${{ steps.deploy.outputs.page_url }}"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -179,6 +179,7 @@ zephyrus discover                what the configured backend can see right now
 zephyrus scan [--dry-run]        one check; --dry-run prints instead of sending
 zephyrus watch --interval 30     scan on a loop
 zephyrus report [--html [PATH]]  current prices, or a standalone HTML report
+zephyrus dashboard [--out PATH]  write the live dashboard page
 zephyrus history SKU             price history for one tracked item
 zephyrus alerts                  recently sent alerts
 zephyrus test-alert              send a sample alert through every channel
@@ -186,6 +187,22 @@ zephyrus test-alert              send a sample alert through every channel
 
 `python3 -m zephyrus_tracker <command>` works without installing.
 `pip install -e .` gets you the shorter `zephyrus` command.
+
+### The live dashboard
+
+`zephyrus dashboard --out site/index.html` writes a standalone page showing every
+tracked deal plotted on the day it was posted, filterable by model and condition,
+with best / typical / highest price bands for judging a price against history.
+
+It has no libraries, no CDN and makes no network calls at view time — every
+figure is baked in when it is generated. So it is exactly as fresh as the scan
+that produced it: regenerate after each scan, serve the file, and the page is
+live. `.github/workflows/pages.yml` does precisely that, publishing to GitHub
+Pages after every scan.
+
+GitHub Pages cannot serve a private repository on the free plan, so that
+workflow stays inert until the repository is public; Pages itself is then
+enabled automatically. A Pages site is publicly reachable on every plan.
 
 ### The HTML report
 
@@ -250,11 +267,11 @@ gitignored.
 python3 -m unittest discover -s tests -v
 ```
 
-49 tests, no network and no credentials required: discovery filters, open-box
+58 tests, no network and no credentials required: discovery filters, open-box
 parsing and restock detection, every alert rule, first-scan baseline behaviour,
 flood capping, cooldown suppression, store filtering, change-only history,
-config merging, report rendering, and drift between the shipped example config
-and the in-code defaults. Feed parsing is tested against a real Slickdeals
+config merging, report and dashboard rendering, schema migration, and drift
+between the shipped example config and the in-code defaults. Feed parsing is tested against a real Slickdeals
 response saved in `tests/fixtures/`.
 
 `.github/workflows/tests.yml` runs them on every push, on Python 3.11 and 3.12.
@@ -274,6 +291,7 @@ zephyrus_tracker/
   detect.py    The alert rules
   notify.py    Console, JSONL, email, ntfy, Slack/Discord/generic webhook
   report.py    Console summary + self-contained HTML report
+  dashboard.py Standalone live dashboard generated from the database
   cli.py       Command-line interface
 ```
 

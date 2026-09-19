@@ -278,8 +278,11 @@ def cmd_dashboard(args, cfg: Config) -> int:
         rows = len(db.get_products())
     print(f"Wrote {path.resolve()} ({rows} tracked items)")
     if rows == 0:
+        # The page renders a valid empty state, so this is only an error for a
+        # human at a terminal; automation publishing on a schedule passes
+        # --allow-empty and gets a placeholder page instead of a failed build.
         print("Nothing tracked yet -- run `zephyrus scan` first.", file=sys.stderr)
-        return 1
+        return 0 if args.allow_empty else 1
     return 0
 
 
@@ -395,6 +398,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="write the standalone dashboard page from the database")
     p.add_argument("--out", default="site/index.html",
                    help="output path (default: site/index.html)")
+    p.add_argument("--allow-empty", action="store_true",
+                   help="succeed even when nothing is tracked yet")
     p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("history", help="price history for one SKU")
