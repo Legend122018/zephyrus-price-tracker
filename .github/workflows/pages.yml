@@ -1,8 +1,13 @@
 # Publishes the dashboard to GitHub Pages after every scan, so the page is as
 # fresh as the last run.
 #
-# SETUP: make this repository public. That is all -- Pages itself is switched
-# on automatically by the configure-pages step below.
+# SETUP (both are one-time):
+#   1. Make this repository public.
+#   2. Settings > Pages > Build and deployment > Source: "GitHub Actions".
+#
+# Step 2 cannot be automated: the workflow's GITHUB_TOKEN is not allowed to
+# create a Pages site ("Resource not accessible by integration"), so
+# configure-pages runs without enablement and expects Pages to already exist.
 #
 # GitHub Pages cannot serve a PRIVATE repository on the free plan, so the job
 # stays inert while the repo is private rather than failing after every scan.
@@ -53,8 +58,6 @@ jobs:
 
       - name: Configure Pages
         uses: actions/configure-pages@v6
-        with:
-          enablement: true
 
       - name: Upload
         uses: actions/upload-pages-artifact@v5

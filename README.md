@@ -200,9 +200,12 @@ that produced it: regenerate after each scan, serve the file, and the page is
 live. `.github/workflows/pages.yml` does precisely that, publishing to GitHub
 Pages after every scan.
 
-GitHub Pages cannot serve a private repository on the free plan, so that
-workflow stays inert until the repository is public; Pages itself is then
-enabled automatically. A Pages site is publicly reachable on every plan.
+Two one-time settings are needed: the repository must be **public** (Pages will
+not serve a private repo on the free plan), and **Settings > Pages > Source**
+must be set to **GitHub Actions**. Neither can be automated — a workflow token
+is not permitted to create a Pages site. The workflow stays inert while the repo
+is private rather than failing after every scan. A Pages site is publicly
+reachable on every plan.
 
 ### The HTML report
 
