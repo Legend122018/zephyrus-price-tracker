@@ -51,7 +51,32 @@ jobs:
           key: zephyrus-db-${{ github.run_id }}
           restore-keys: zephyrus-db-
 
+      # Without this guard every scheduled run fails until the secret exists,
+      # and GitHub emails on each one -- ~48 failure mails a day.
+      - name: Check configuration
+        id: guard
+        env:
+          BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+        run: |
+          if [ -z "$BESTBUY_API_KEY" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "### Scan skipped"
+              echo ""
+              echo "\`BESTBUY_API_KEY\` is not set for this repository, so there is"
+              echo "nothing to scan with."
+              echo ""
+              echo "Add it under **Settings > Secrets and variables > Actions >"
+              echo "New repository secret**. Get a free key at"
+              echo "<https://developer.bestbuy.com/>."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::BESTBUY_API_KEY is not set; skipping the scan."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Scan
+        if: steps.guard.outputs.configured == 'true'
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
           ZEPHYRUS_NTFY_TOPIC: ${{ secrets.ZEPHYRUS_NTFY_TOPIC }}
@@ -61,20 +86,20 @@ jobs:
 
       # Save first, so a failure in report generation never costs you history.
       - name: Save price history
-        if: always()
+        if: always() && steps.guard.outputs.configured == 'true'
         uses: actions/cache/save@v5
         with:
           path: zephyrus.db
           key: zephyrus-db-${{ github.run_id }}
 
       - name: Build HTML report
-        if: always()
+        if: always() && steps.guard.outputs.configured == 'true'
         run: python -m zephyrus_tracker report --html report.html
 
       # Download this from the run's summary page to see current prices and
       # full history without cloning anything.
       - name: Upload report
-        if: always()
+        if: always() && steps.guard.outputs.configured == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: zephyrus-report
@@ -82,7 +107,7 @@ jobs:
           retention-days: 14
 
       - name: Summary
-        if: always()
+        if: always() && steps.guard.outputs.configured == 'true'
         run: |
           {
             echo "### Zephyrus scan"
