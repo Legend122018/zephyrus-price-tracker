@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS products (
     url           TEXT DEFAULT '',
     image         TEXT DEFAULT '',
     manufacturer  TEXT DEFAULT '',
+    posted_at     TEXT DEFAULT '',
     first_seen    TEXT NOT NULL,
     last_seen     TEXT NOT NULL
 );
@@ -105,7 +106,18 @@ class Storage:
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA foreign_keys=ON")
         self.conn.executescript(SCHEMA)
+        self._migrate()
         self.conn.commit()
+
+    def _migrate(self) -> None:
+        """Add columns introduced after a database was first created.
+
+        CREATE TABLE IF NOT EXISTS leaves existing tables untouched, so a
+        database from an earlier version needs the new column added.
+        """
+        have = {row["name"] for row in self.conn.execute("PRAGMA table_info(products)")}
+        if "posted_at" not in have:
+            self.conn.execute("ALTER TABLE products ADD COLUMN posted_at TEXT DEFAULT ''")
 
     def close(self) -> None:
         self.conn.close()
@@ -135,16 +147,17 @@ class Storage:
         if is_new:
             self.conn.execute(
                 "INSERT INTO products (sku, name, model_number, url, image, manufacturer,"
-                " first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?)",
+                " posted_at, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
                 (product.sku, product.name, product.model_number, product.url,
-                 product.image, product.manufacturer, now, now),
+                 product.image, product.manufacturer, product.posted_at, now, now),
             )
         else:
             self.conn.execute(
                 "UPDATE products SET name=?, model_number=?, url=?, image=?,"
-                " manufacturer=?, last_seen=? WHERE sku=?",
+                " manufacturer=?, posted_at=COALESCE(NULLIF(?, ''), posted_at),"
+                " last_seen=? WHERE sku=?",
                 (product.name, product.model_number, product.url, product.image,
-                 product.manufacturer, now, product.sku),
+                 product.manufacturer, product.posted_at, now, product.sku),
             )
         return is_new
 

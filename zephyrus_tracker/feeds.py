@@ -98,6 +98,7 @@ class Deal:
             url=self.url,
             image=self.image,
             manufacturer="ASUS",
+            posted_at=self.posted_at.date().isoformat() if self.posted_at else "",
         )
 
     def as_offer(self) -> Offer:

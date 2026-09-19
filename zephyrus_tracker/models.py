@@ -67,6 +67,10 @@ class Product:
     url: str = ""
     image: str = ""
     manufacturer: str = ""
+    #: When the listing was published at its source (ISO date), where the
+    #: backend knows it. Distinct from first_seen, which is when WE saw it --
+    #: a feed posting can be months old the first time we read it.
+    posted_at: str = ""
 
 
 @dataclass

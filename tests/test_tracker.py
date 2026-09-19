@@ -18,7 +18,7 @@ from zephyrus_tracker.detect import (
     ALL_TIME_LOW, BOSTON_PICKUP, HEAVY_DISCOUNT, OPENBOX_RESTOCK, PRICE_DROP, Detector,
 )
 from zephyrus_tracker.feeds import Deal, FeedClient, _last_price
-from zephyrus_tracker.models import Offer
+from zephyrus_tracker.models import Offer, Product
 from zephyrus_tracker.report import console_report, html_report
 from zephyrus_tracker.scan import FeedScanner, Scanner, _has_keyword
 from zephyrus_tracker.storage import Storage
@@ -356,6 +356,38 @@ class TestStorage(TrackerTestCase):
         last = self.db.last_scan()
         self.assertEqual(last["products"], 2)
         self.assertIsNone(last["error"])
+
+
+class TestSchemaMigration(unittest.TestCase):
+    def test_a_database_predating_posted_at_gains_the_column(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "old.db"
+            db = Storage(path)
+            db.conn.execute("ALTER TABLE products DROP COLUMN posted_at")
+            db.conn.execute(
+                "INSERT INTO products (sku, name, first_seen, last_seen)"
+                " VALUES ('old-1','Existing row','2026-01-01','2026-01-01')")
+            db.conn.commit()
+            db.close()
+
+            reopened = Storage(path)          # migration runs here
+            self.addCleanup(reopened.close)
+            columns = {r["name"] for r in reopened.conn.execute("PRAGMA table_info(products)")}
+            self.assertIn("posted_at", columns)
+            self.assertEqual(len(reopened.get_products()), 1, "existing rows survive")
+
+    def test_posted_at_round_trips_and_is_not_clobbered(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Storage(Path(tmp) / "p.db")
+            self.addCleanup(db.close)
+            db.upsert_product(Product(sku="sd-1", name="G14", posted_at="2026-07-04"))
+            db.conn.commit()
+            self.assertEqual(db.get_products()[0]["posted_at"], "2026-07-04")
+
+            # A later scan that cannot supply the date must not erase it.
+            db.upsert_product(Product(sku="sd-1", name="G14 renamed"))
+            db.conn.commit()
+            self.assertEqual(db.get_products()[0]["posted_at"], "2026-07-04")
 
 
 class TestConfig(unittest.TestCase):
