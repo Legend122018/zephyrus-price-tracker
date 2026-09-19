@@ -37,15 +37,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       # restore-keys picks up the newest zephyrus-db-* entry from a prior run.
       - name: Restore price history
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: zephyrus.db
           key: zephyrus-db-${{ github.run_id }}
@@ -62,7 +62,7 @@ jobs:
       # Save first, so a failure in report generation never costs you history.
       - name: Save price history
         if: always()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: zephyrus.db
           key: zephyrus-db-${{ github.run_id }}
@@ -75,7 +75,7 @@ jobs:
       # full history without cloning anything.
       - name: Upload report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: zephyrus-report
           path: report.html
