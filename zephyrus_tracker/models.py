@@ -113,6 +113,10 @@ class Product:
     #: True when the source says the deal is dead. Feed search returns long
     #: expired postings, so this is what separates buyable from historical.
     expired: bool = False
+    #: Which backend produced this row ("feeds" or "bestbuy"). Switching
+    #: backends leaves the other one's rows behind, and they must not be
+    #: presented as current -- nothing is scanning them any more.
+    source: str = ""
 
 
 @dataclass

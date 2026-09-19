@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS products (
     image         TEXT DEFAULT '',
     manufacturer  TEXT DEFAULT '',
     posted_at     TEXT DEFAULT '',
+    source        TEXT DEFAULT '',
     expired       INTEGER NOT NULL DEFAULT 0,
     expiry_checked_at TEXT DEFAULT '',
     first_seen    TEXT NOT NULL,
@@ -120,6 +121,7 @@ class Storage:
         have = {row["name"] for row in self.conn.execute("PRAGMA table_info(products)")}
         for column, ddl in (
             ("posted_at", "ALTER TABLE products ADD COLUMN posted_at TEXT DEFAULT ''"),
+            ("source", "ALTER TABLE products ADD COLUMN source TEXT DEFAULT ''"),
             ("expired", "ALTER TABLE products ADD COLUMN expired INTEGER NOT NULL DEFAULT 0"),
             ("expiry_checked_at",
              "ALTER TABLE products ADD COLUMN expiry_checked_at TEXT DEFAULT ''"),
@@ -155,17 +157,19 @@ class Storage:
         if is_new:
             self.conn.execute(
                 "INSERT INTO products (sku, name, model_number, url, image, manufacturer,"
-                " posted_at, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?)",
+                " posted_at, source, first_seen, last_seen) VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (product.sku, product.name, product.model_number, product.url,
-                 product.image, product.manufacturer, product.posted_at, now, now),
+                 product.image, product.manufacturer, product.posted_at,
+                 product.source, now, now),
             )
         else:
             self.conn.execute(
                 "UPDATE products SET name=?, model_number=?, url=?, image=?,"
                 " manufacturer=?, posted_at=COALESCE(NULLIF(?, ''), posted_at),"
-                " last_seen=? WHERE sku=?",
+                " source=COALESCE(NULLIF(?, ''), source), last_seen=? WHERE sku=?",
                 (product.name, product.model_number, product.url, product.image,
-                 product.manufacturer, product.posted_at, now, product.sku),
+                 product.manufacturer, product.posted_at, product.source,
+                 now, product.sku),
             )
         return is_new
 

@@ -583,6 +583,26 @@ class TestDashboard(TrackerTestCase):
         for row in collect(self.db):
             self.assertIn(row["state"], (LIVE, UNVERIFIED, EXPIRED))
 
+    def test_rows_from_another_backend_are_archived(self):
+        """Switching backends must not leave stale rows looking current."""
+        self.build()                                   # Best Buy rows
+        db = self.db
+        db.upsert_product(Product(sku="sd-999", name="ASUS ROG Zephyrus G14",
+                                  posted_at="2026-09-01", source="feeds"))
+        db.conn.execute(
+            "INSERT INTO offer_state (sku, condition, price, available, store_count,"
+            " first_seen, last_seen) VALUES ('sd-999','new',1499.0,1,0,'x','x')")
+        db.conn.commit()
+
+        rows = {r["id"]: r for r in collect(db, active_source="bestbuy")}
+        self.assertTrue(rows["sd-999"]["archived"], "feed row should be archived")
+        self.assertFalse(rows[G14]["archived"], "active-backend row should not be")
+
+    def test_nothing_is_archived_when_the_backend_matches(self):
+        self.build()
+        for row in collect(self.db, active_source="bestbuy"):
+            self.assertFalse(row["archived"])
+
     def test_rows_are_ordered_oldest_first(self):
         self.build()
         dates = [r["posted"] for r in collect(self.db)]

@@ -177,6 +177,7 @@ class Scanner(AlertPipeline):
                             url=str(raw.get("url") or ""),
                             image=str(raw.get("image") or ""),
                             manufacturer=str(raw.get("manufacturer") or ""),
+                            source="bestbuy",
                         ),
                         raw,
                     )

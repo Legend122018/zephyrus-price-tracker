@@ -292,8 +292,8 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     var ob = ROWS.filter(function (r) { return r.openBox; });
     var obLow = ob.length ? Math.min.apply(null, ob.map(function (r) { return r.price; })) : null;
     var nw = ROWS.filter(function (r) { return !r.openBox; }).map(function (r) { return r.price; });
-    var live = ROWS.filter(function (r) { return r.state === "live"; });
-    var unver = ROWS.filter(function (r) { return r.state === "unverified"; });
+    var live = ROWS.filter(function (r) { return r.state === "live" && !r.archived; });
+    var unver = ROWS.filter(function (r) { return r.state === "unverified" && !r.archived; });
     // Lead with what can actually be bought. "Unverified" is its own count on
     // purpose: nobody can check a retailer's stock without its API, so an old
     // unmarked posting is reported as unknown rather than as in stock.
@@ -369,8 +369,8 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
       // Hollow = expired. Fill carries buyability, hue carries condition, so
       // neither meaning depends on the other.
       var c = el("circle", {
-        cx: px(days(r.posted)), cy: py(r.price), r: r.expired ? 4.5 : 5.5,
-        fill: r.expired ? "var(--surface)" : hue,
+        cx: px(days(r.posted)), cy: py(r.price), r: (r.expired || r.archived) ? 4.5 : 5.5,
+        fill: (r.expired || r.archived) ? "var(--surface)" : hue,
         stroke: hue, "stroke-width": 2, "data-id": r.id
       });
       c.style.cursor = "pointer";
@@ -439,12 +439,13 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
     }
     body.innerHTML = rows.map(function (r) {
       var colour = r.openBox ? "var(--s-ob)" : "var(--s-new)";
-      return '<tr class="' + (r.expired ? "gone" : "") + '">' +
+      return '<tr class="' + (r.expired || r.archived ? "gone" : "") + '">' +
         '<td><span class="when">' + r.posted + "</span></td>" +
         '<td><span class="mdl">' + r.model + "</span></td>" +
         '<td><span class="pill"><span class="key" style="background:' + colour + '"></span>' +
           (r.openBox ? "Open-box" : "New") + "</span>" +
-          (r.expired ? ' <span class="pill exp">Expired</span>' : "") + "</td>" +
+          (r.expired ? ' <span class="pill exp">Expired</span>' : "") +
+          (r.archived ? ' <span class="pill exp">Archived</span>' : "") + "</td>" +
         '<td class="r"><span class="price">' + usd2(r.price) + "</span></td>" +
         '<td class="name">' + r.name.replace(/[<>]/g, "") + "</td>" +
         '<td><a href="' + r.url + '" target="_blank" rel="noopener">View &rarr;</a></td>' +
@@ -465,9 +466,9 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
   }
 
   function renderLive() {
-    var live = ROWS.filter(function (r) { return r.state === "live"; })
+    var live = ROWS.filter(function (r) { return r.state === "live" && !r.archived; })
       .sort(function (a, b) { return a.price - b.price; });
-    var maybe = ROWS.filter(function (r) { return r.state === "unverified"; })
+    var maybe = ROWS.filter(function (r) { return r.state === "unverified" && !r.archived; })
       .sort(function (a, b) { return a.price - b.price; });
     var host = document.getElementById("liveNow");
     var out = "";
@@ -530,8 +531,13 @@ TEMPLATE = r"""<title>Zephyrus Deal Watch</title>
 """
 
 
-def collect(db, *, stale_after_days: int = 30) -> list[dict]:
-    """Every tracked offer, flattened for the page."""
+def collect(db, *, stale_after_days: int = 30, active_source: str = "") -> list[dict]:
+    """Every tracked offer, flattened for the page.
+
+    ``active_source`` is the backend currently scanning. Rows produced by a
+    different backend are marked archived: nothing is refreshing them any
+    more, so presenting them as current would be wrong.
+    """
     rows: list[dict] = []
     for product in db.get_products():
         for state in db.conn.execute(
@@ -558,6 +564,8 @@ def collect(db, *, stale_after_days: int = 30) -> list[dict]:
                 "expired": bool(product["expired"]),
                 "state": liveness_state(bool(product["expired"]), posted,
                                         stale_after_days=stale_after_days),
+                "archived": bool(active_source and (product["source"] or "")
+                                 and product["source"] != active_source),
             })
     rows.sort(key=lambda r: r["posted"])
     return rows
@@ -566,7 +574,8 @@ def collect(db, *, stale_after_days: int = 30) -> list[dict]:
 def render(db, out_path: str | Path, config=None) -> Path:
     """Write the dashboard. Returns the path written."""
     stale_after = int(config.get("feeds.stale_after_days", 30)) if config else 30
-    rows = collect(db, stale_after_days=stale_after)
+    active = getattr(config, "backend", "") if config else ""
+    rows = collect(db, stale_after_days=stale_after, active_source=active)
     generated = datetime.datetime.now().strftime("%-d %b %Y, %H:%M")
     if rows:
         span = f'{rows[0]["posted"]} to {rows[-1]["posted"]}'

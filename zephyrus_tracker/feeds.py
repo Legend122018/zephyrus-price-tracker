@@ -108,6 +108,7 @@ class Deal:
             manufacturer="ASUS",
             posted_at=self.posted_at.date().isoformat() if self.posted_at else "",
             expired=bool(self.expired),
+            source="feeds",
         )
 
     def as_offer(self) -> Offer:

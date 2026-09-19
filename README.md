@@ -259,6 +259,13 @@ gitignored.
 
 ## Worth knowing
 
+### Switching backends
+
+Each tracked row records which backend produced it. When you switch, the other
+backend's rows are marked **archived**: nothing is scanning them any more, so
+they stay as price history but are never shown as buyable. No manual cleanup is
+needed, and the accumulated history is preserved.
+
 ### How reliable is "in stock"?
 
 Honestly: only the `bestbuy` backend can answer it. Best Buy's API has a
@@ -310,12 +317,12 @@ dressed up as a fact. Tune the cutoff with `feeds.stale_after_days`.
 python3 -m unittest discover -s tests -v
 ```
 
-79 tests, no network and no credentials required: discovery filters, open-box
+83 tests, no network and no credentials required: discovery filters, open-box
 parsing and restock detection, every alert rule, first-scan baseline behaviour,
 flood capping, cooldown suppression, store filtering, change-only history,
 config merging, report and dashboard rendering, schema migration, liveness
 checking with its request budget and three-state classification,
-multi-area store resolution and tax-free handling, and drift between the shipped example config
+multi-area store resolution, tax-free handling, backend archiving, and drift between the shipped example config
 and the in-code defaults. Feed parsing is tested against a real Slickdeals
 response saved in `tests/fixtures/`.
 
