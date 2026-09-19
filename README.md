@@ -84,10 +84,22 @@ refurbished from its title, with the retailer identified where possible.
 
 ### Stores (`bestbuy` only)
 
-`location.postal_code = "02108"` with a 25-mile radius covers the Best Buy
-locations Boston shoppers actually use — Cambridge, Watertown, Dorchester/South
-Bay, Everett, Saugus, Dedham, Braintree, Framingham. Run `zephyrus stores` to
+Stores are resolved from every area in `location.postal_codes` and merged. The
+default covers **Boston (02108)** and **Nashua NH (03063)** at a 25-mile radius
+each — Cambridge, Watertown, Dorchester/South Bay, Everett, Saugus, Dedham,
+Braintree, Framingham, plus Nashua and its neighbours. Run `zephyrus stores` to
 see which resolved, then pin specific ones with `location.store_ids`.
+
+Nashua is included deliberately. **New Hampshire charges no sales tax**, so on a
+$2,600 laptop that is roughly **$165 saved** against Massachusetts' 6.25% — a
+bigger win than most of the discounts this tracker watches, for a 45-minute
+drive. Tax-free stores are listed first, flagged in alerts, and a pickup alert
+naming one is raised to high priority with the saving spelled out. Set your own
+rate with `location.home_sales_tax_pct`.
+
+Each area is queried separately for availability, because Best Buy sorts results
+by proximity to the postcode given — a single Boston query can crowd a Nashua
+store out of the results entirely.
 
 ---
 
@@ -99,7 +111,7 @@ see which resolved, then pin specific ones with `location.store_ids`.
 | `all_time_low` | Price beats every price recorded for that offer |
 | `heavy_discount` | ≥ 20% off list (new) or ≥ 25% (open-box/refurb) |
 | `price_drop` | Dropped ≥ 5% **or** ≥ $100 since the last check |
-| `boston_pickup` | First time a tracked Boston store has it (`bestbuy` only) |
+| `boston_pickup` | First time a tracked store has it — high priority if tax-free (`bestbuy` only) |
 | `new_product` | A Zephyrus listing that wasn't there before |
 
 Discounts are measured against the regular **list** price, so a sale and an
@@ -298,11 +310,12 @@ dressed up as a fact. Tune the cutoff with `feeds.stale_after_days`.
 python3 -m unittest discover -s tests -v
 ```
 
-72 tests, no network and no credentials required: discovery filters, open-box
+79 tests, no network and no credentials required: discovery filters, open-box
 parsing and restock detection, every alert rule, first-scan baseline behaviour,
 flood capping, cooldown suppression, store filtering, change-only history,
 config merging, report and dashboard rendering, schema migration, liveness
-checking with its request budget and three-state classification, and drift between the shipped example config
+checking with its request budget and three-state classification,
+multi-area store resolution and tax-free handling, and drift between the shipped example config
 and the in-code defaults. Feed parsing is tested against a real Slickdeals
 response saved in `tests/fixtures/`.
 

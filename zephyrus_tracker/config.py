@@ -66,10 +66,17 @@ DEFAULTS: dict[str, Any] = {
         "models": [],
     },
     "location": {
-        "postal_code": "02108",   # downtown Boston
+        # Several areas are resolved and merged. Nashua NH is deliberately
+        # included: New Hampshire charges no sales tax, which on a $2,600
+        # laptop is a larger saving than most of the discounts tracked here.
+        "postal_codes": ["02108", "03063"],   # downtown Boston, Nashua NH
+        "postal_code": "02108",   # legacy single value; used if the list is empty
         "radius_miles": 25,
         "store_ids": [],          # optional allowlist of store IDs
         "city_allowlist": [],     # optional allowlist of city names
+        # Your home rate, used to show what buying tax-free actually saves.
+        # Massachusetts is 6.25%.
+        "home_sales_tax_pct": 6.25,
     },
     "thresholds": {
         # Discounts are always measured against the regular LIST price, so a

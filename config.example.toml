@@ -83,9 +83,17 @@ models = []
 
 
 [location]
-postal_code = "02108"          # downtown Boston
-radius_miles = 25              # covers Cambridge, Watertown, Dorchester,
-                               # Everett, Saugus, Dedham, Braintree, Framingham
+# Stores are resolved from every area listed and merged. Nashua NH is included
+# on purpose: New Hampshire charges no sales tax, so on a $2,600 laptop that is
+# ~$165 saved -- a bigger win than most of the discounts this tracker watches,
+# for a 45-minute drive from Boston.
+postal_codes = ["02108", "03063"]   # downtown Boston, Nashua NH
+radius_miles = 25              # per area: Cambridge, Watertown, Dorchester,
+                               # Everett, Saugus, Dedham, Braintree, Framingham,
+                               # plus Nashua and its neighbours
+
+# Your home sales-tax rate, used to show what buying tax-free actually saves.
+home_sales_tax_pct = 6.25      # Massachusetts
 # Optional: pin to specific stores instead of everything in the radius.
 # Run `zephyrus stores` to see IDs, then e.g. store_ids = ["1497", "1416"]
 store_ids = []

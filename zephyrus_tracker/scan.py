@@ -12,7 +12,8 @@ from typing import Any
 from .bestbuy import BestBuyClient, BestBuyError
 from .feeds import FeedClient, FeedError
 from .detect import Detector, filter_new_alerts
-from .models import NEW, OPEN_BOX_PREFIX, PRE_OWNED, REFURBISHED, Alert, Offer, Product
+from .models import (NEW, OPEN_BOX_PREFIX, PRE_OWNED, REFURBISHED, Alert, Offer,
+                     Product, is_tax_free)
 from .notify import dispatch
 from .storage import Storage
 
@@ -119,10 +120,16 @@ class Scanner(AlertPipeline):
         if not force and age is not None and age < STORE_REFRESH_HOURS and self.db.get_stores():
             return [dict(row) for row in self.db.get_stores()]
 
-        postal = str(self.cfg.get("location.postal_code", "02108"))
         radius = int(self.cfg.get("location.radius_miles", 25))
-        log.info("Resolving Best Buy stores within %d miles of %s", radius, postal)
-        stores = self.client.stores_near(postal, radius)
+        stores: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
+        for postal in self._postal_codes():
+            log.info("Resolving Best Buy stores within %d miles of %s", radius, postal)
+            for store in self.client.stores_near(postal, radius):
+                store_id = str(store.get("storeId") or "")
+                if store_id and store_id not in seen_ids:
+                    seen_ids.add(store_id)
+                    stores.append(store)
 
         city_allow = {c.lower() for c in self.cfg.get("location.city_allowlist", []) or []}
         if city_allow:
@@ -130,6 +137,15 @@ class Scanner(AlertPipeline):
 
         self.db.save_stores(stores)
         return stores
+
+    def _postal_codes(self) -> list[str]:
+        """Every area to resolve stores from, nearest-to-home first."""
+        codes = [str(c).strip() for c in (self.cfg.get("location.postal_codes") or [])
+                 if str(c).strip()]
+        if not codes:
+            single = str(self.cfg.get("location.postal_code", "") or "").strip()
+            codes = [single] if single else []
+        return codes
 
     def tracked_store_ids(self) -> set[str]:
         """Store IDs whose stock we care about (explicit allowlist wins)."""
@@ -275,34 +291,47 @@ class Scanner(AlertPipeline):
     def _attach_store_availability(self, offers: list[Offer],
                                    products: dict[str, tuple[Product, dict[str, Any]]]) -> None:
         """Fill in Boston-area pickup stock, one API call per SKU."""
-        if not self.cfg.get("location.postal_code"):
+        postals = self._postal_codes()
+        if not postals:
             return
         tracked = self.tracked_store_ids()
         if not tracked:
-            log.warning("No Boston-area stores resolved; skipping pickup availability")
+            log.warning("No nearby stores resolved; skipping pickup availability")
             return
 
-        postal = str(self.cfg.get("location.postal_code"))
-        by_sku: dict[str, list[tuple[str, str, str, bool]]] = {}
+        # The stores table is the authority on which state a store is in; the
+        # availability endpoint does not always say.
+        regions = {row["store_id"]: (row["region"] or "")
+                   for row in self.db.get_stores()}
+        by_sku: dict[str, list[tuple[str, str, str, str, bool]]] = {}
 
         for sku in products:
-            try:
-                stores = self.client.product_store_availability(sku, postal)
-            except BestBuyError as exc:
-                log.warning("Store availability for %s failed: %s", sku, exc)
-                continue
-            nearby = []
-            for store in stores:
-                store_id = str(store.get("storeID") or store.get("storeId") or "")
-                if store_id and store_id in tracked:
-                    nearby.append((
+            found: dict[str, tuple[str, str, str, str, bool]] = {}
+            # One query per area: the endpoint sorts by proximity to the ZIP
+            # given, so a single Boston query can crowd out a Nashua store.
+            for postal in postals:
+                try:
+                    stores = self.client.product_store_availability(sku, postal)
+                except BestBuyError as exc:
+                    log.warning("Store availability for %s near %s failed: %s",
+                                sku, postal, exc)
+                    continue
+                for store in stores:
+                    store_id = str(store.get("storeID") or store.get("storeId") or "")
+                    if not store_id or store_id not in tracked or store_id in found:
+                        continue
+                    found[store_id] = (
                         store_id,
                         str(store.get("name") or ""),
                         str(store.get("city") or ""),
+                        str(store.get("region") or store.get("state")
+                            or regions.get(store_id, "")),
                         bool(store.get("lowStock")),
-                    ))
-            if nearby:
-                by_sku[sku] = nearby
+                    )
+            if found:
+                # Tax-free stores first: that saving outranks most discounts.
+                by_sku[sku] = sorted(
+                    found.values(), key=lambda s: (not is_tax_free(s[3]), s[2]))
 
         # Pickup data is reported per SKU, which Best Buy scopes to the new
         # listing -- open-box units are tied to individual stores and aren't

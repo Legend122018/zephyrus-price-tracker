@@ -54,12 +54,23 @@ BASE_PRODUCTS = [
     },
 ]
 
-STORES = [
-    {"storeId": "1497", "name": "Cambridge", "city": "Cambridge", "region": "MA",
-     "postalCode": "02141", "distance": 2.4, "storeType": "Big Box"},
-    {"storeId": "1416", "name": "Watertown", "city": "Watertown", "region": "MA",
-     "postalCode": "02472", "distance": 6.8, "storeType": "Big Box"},
-]
+#: Stores per area, so merging across ZIPs is actually exercised. Nashua is
+#: in New Hampshire, which charges no sales tax.
+STORES_BY_AREA = {
+    "02108": [
+        {"storeId": "1497", "name": "Cambridge", "city": "Cambridge", "region": "MA",
+         "postalCode": "02141", "distance": 2.4, "storeType": "Big Box"},
+        {"storeId": "1416", "name": "Watertown", "city": "Watertown", "region": "MA",
+         "postalCode": "02472", "distance": 6.8, "storeType": "Big Box"},
+    ],
+    "03063": [
+        {"storeId": "0330", "name": "Nashua", "city": "Nashua", "region": "NH",
+         "postalCode": "03063", "distance": 1.2, "storeType": "Big Box"},
+        {"storeId": "1497", "name": "Cambridge", "city": "Cambridge", "region": "MA",
+         "postalCode": "02141", "distance": 41.0, "storeType": "Big Box"},
+    ],
+}
+STORES = STORES_BY_AREA["02108"]
 
 
 class FakeClient:
@@ -73,7 +84,7 @@ class FakeClient:
 
     def stores_near(self, postal_code, radius_miles=25):
         self.request_count += 1
-        return copy.deepcopy(STORES)
+        return copy.deepcopy(STORES_BY_AREA.get(str(postal_code), []))
 
     def search_products(self, expression, **kwargs):
         self.request_count += 1
@@ -85,7 +96,10 @@ class FakeClient:
 
     def product_store_availability(self, sku, postal_code):
         self.request_count += 1
-        return copy.deepcopy(self._availability.get(sku, []))
+        data = self._availability.get(sku, [])
+        if isinstance(data, dict):          # keyed by ZIP when a test needs it
+            data = data.get(str(postal_code), [])
+        return copy.deepcopy(data)
 
 
 def make_config(tmpdir, **overrides):
@@ -303,6 +317,96 @@ class TestStoreAvailability(TrackerTestCase):
         ]})
         result = self.scan(client)
         self.assertIn(BOSTON_PICKUP, self.kinds(result))
+
+
+class TestNashuaAndTaxFreeStores(TrackerTestCase):
+    """New Hampshire has no sales tax, which beats most discounts tracked here."""
+
+    def test_stores_from_every_configured_area_are_merged(self):
+        scanner = Scanner(self.cfg, self.db, FakeClient())
+        scanner.refresh_stores(force=True)
+        ids = {row["store_id"] for row in self.db.get_stores()}
+        self.assertEqual(ids, {"1497", "1416", "0330"})
+
+    def test_a_store_listed_in_two_areas_is_not_duplicated(self):
+        Scanner(self.cfg, self.db, FakeClient()).refresh_stores(force=True)
+        rows = [r["store_id"] for r in self.db.get_stores()]
+        self.assertEqual(len(rows), len(set(rows)))
+
+    def test_nashua_stock_is_tracked(self):
+        client = FakeClient(availability={G14: [
+            {"storeID": "0330", "name": "Nashua", "city": "Nashua",
+             "region": "NH", "lowStock": False},
+        ]})
+        result = self.scan(client)
+        offer = next(o for o in result.offers if o.sku == G14 and o.condition == "new")
+        self.assertEqual([s[0] for s in offer.stores], ["0330"])
+        self.assertTrue(offer.tax_free_stores)
+        self.assertIn("no sales tax", offer.store_names[0])
+
+    def test_tax_free_stores_are_listed_first(self):
+        client = FakeClient(availability={G14: [
+            {"storeID": "1497", "name": "Cambridge", "city": "Cambridge",
+             "region": "MA", "lowStock": False},
+            {"storeID": "0330", "name": "Nashua", "city": "Nashua",
+             "region": "NH", "lowStock": False},
+        ]})
+        result = self.scan(client)
+        offer = next(o for o in result.offers if o.sku == G14 and o.condition == "new")
+        self.assertEqual(offer.stores[0][0], "0330", "NH store should lead")
+
+    def test_a_store_only_reachable_from_the_second_area_is_still_found(self):
+        # A single Boston query sorts by proximity to Boston and can crowd out
+        # a Nashua store, so each area is queried separately.
+        client = FakeClient(availability={G14: {
+            "02108": [],
+            "03063": [{"storeID": "0330", "name": "Nashua", "city": "Nashua",
+                       "region": "NH", "lowStock": True}],
+        }})
+        result = self.scan(client)
+        offer = next(o for o in result.offers if o.sku == G14 and o.condition == "new")
+        self.assertEqual([s[0] for s in offer.stores], ["0330"])
+
+    def test_region_falls_back_to_the_resolved_store_list(self):
+        # The availability endpoint does not always report a state.
+        client = FakeClient(availability={G14: [
+            {"storeID": "0330", "name": "Nashua", "city": "Nashua", "lowStock": False},
+        ]})
+        result = self.scan(client)
+        offer = next(o for o in result.offers if o.sku == G14 and o.condition == "new")
+        self.assertEqual(offer.stores[0][3], "NH")
+        self.assertTrue(offer.tax_free_stores)
+
+    def test_pickup_alert_quantifies_the_tax_saving(self):
+        self.scan(FakeClient())                      # baseline
+        result = self.scan(FakeClient(availability={G14: [
+            {"storeID": "0330", "name": "Best Buy Nashua", "city": "Nashua",
+             "region": "NH", "lowStock": True},
+        ]}))
+        alert = next(a for a in result.alerts if a.kind == BOSTON_PICKUP)
+        self.assertIn("no sales tax", alert.message)
+        self.assertIn("$125.00", alert.message)      # 6.25% of the $1,999.99 list
+        self.assertEqual(alert.severity, 2, "a tax-free option outranks most discounts")
+
+    def test_pickup_alert_without_a_tax_free_store_stays_plain(self):
+        self.scan(FakeClient())
+        result = self.scan(FakeClient(availability={G14: [
+            {"storeID": "1497", "name": "Cambridge", "city": "Cambridge",
+             "region": "MA", "lowStock": False},
+        ]}))
+        alert = next(a for a in result.alerts if a.kind == BOSTON_PICKUP)
+        self.assertNotIn("sales tax", alert.message)
+        self.assertEqual(alert.severity, 1)
+
+    def test_massachusetts_stores_are_not_marked_tax_free(self):
+        client = FakeClient(availability={G14: [
+            {"storeID": "1497", "name": "Cambridge", "city": "Cambridge",
+             "region": "MA", "lowStock": False},
+        ]})
+        result = self.scan(client)
+        offer = next(o for o in result.offers if o.sku == G14 and o.condition == "new")
+        self.assertFalse(offer.tax_free_stores)
+        self.assertNotIn("no sales tax", offer.store_names[0])
 
 
 class TestCooldown(TrackerTestCase):

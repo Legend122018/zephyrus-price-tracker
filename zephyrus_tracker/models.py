@@ -57,6 +57,16 @@ def is_open_box(condition: str) -> bool:
     return condition.startswith(OPEN_BOX_PREFIX)
 
 
+#: States with no statewide sales tax. New Hampshire is the one that matters
+#: from Boston: it is a 45-minute drive and saves 6.25% Massachusetts tax,
+#: which on a $2,600 laptop beats most of the discounts this tracker watches.
+NO_SALES_TAX_STATES = {"NH", "DE", "MT", "OR", "AK"}
+
+
+def is_tax_free(region: str) -> bool:
+    return (region or "").strip().upper() in NO_SALES_TAX_STATES
+
+
 #: How confident we are that a listing can actually be bought right now.
 LIVE = "live"              # source says not expired, and the posting is recent
 UNVERIFIED = "unverified"  # source says not expired, but the posting is old
@@ -118,8 +128,9 @@ class Offer:
     regular_price: float | None = None
     available: bool = False
     url: str = ""
-    #: Boston-area stores holding stock, as ``[(store_id, name, city, low_stock)]``.
-    stores: list[tuple[str, str, str, bool]] = field(default_factory=list)
+    #: Nearby stores holding stock, as
+    #: ``[(store_id, name, city, region, low_stock)]``.
+    stores: list[tuple[str, str, str, str, bool]] = field(default_factory=list)
 
     @property
     def key(self) -> tuple[str, str]:
@@ -148,7 +159,18 @@ class Offer:
 
     @property
     def store_names(self) -> list[str]:
-        return [f"{name} ({city})" for _sid, name, city, _low in self.stores]
+        out = []
+        for _sid, name, city, region, _low in self.stores:
+            label = f"{name} ({city}"
+            label += f", {region})" if region else ")"
+            if is_tax_free(region):
+                label += " \u2014 no sales tax"
+            out.append(label)
+        return out
+
+    @property
+    def tax_free_stores(self) -> list[tuple]:
+        return [s for s in self.stores if is_tax_free(s[3])]
 
 
 @dataclass

@@ -53,6 +53,7 @@ class Detector:
         self.want_new_product = bool(t.get("alert_on_new_product", True))
         self.max_price = float(t.get("max_price", 0) or 0)
         self.include_unavailable = bool(config.get("alerts.include_unavailable", False))
+        self.home_tax_pct = float(config.get("location.home_sales_tax_pct", 0) or 0)
 
     # ------------------------------------------------------------------ API
 
@@ -105,17 +106,28 @@ class Detector:
             ))
 
         # Local pickup is its own signal: the SKU may have been buyable online
-        # for weeks before a Boston store actually stocked it.
+        # for weeks before a nearby store actually stocked it.
         had_stores = bool(prev is not None and prev["store_count"])
         if offer.stores and not had_stores:
+            message = (f"{offer.label} now available for pickup nearby: "
+                       + ", ".join(offer.store_names[:4]))
+            saving = self._tax_saving(offer)
+            if saving:
+                message += (f" \u2014 buying tax-free saves about {money(saving)} "
+                            f"versus {self.home_tax_pct}% at home")
             alerts.append(self._alert(
-                BOSTON_PICKUP, offer, name,
-                f"{offer.label} now available for pickup near Boston: "
-                + ", ".join(offer.store_names[:4]),
-                severity=1,
+                BOSTON_PICKUP, offer, name, message,
+                # A tax-free option is worth more than most discounts here.
+                severity=2 if saving else 1,
                 dedupe_key=f"{BOSTON_PICKUP}:{offer.sku}:{offer.condition}",
             ))
         return alerts
+
+    def _tax_saving(self, offer: Offer) -> float | None:
+        """What a tax-free store saves against the home rate, if one has stock."""
+        if not offer.tax_free_stores or offer.price is None or self.home_tax_pct <= 0:
+            return None
+        return round(offer.price * self.home_tax_pct / 100, 2)
 
     # ------------------------------------------------------------ price rules
 

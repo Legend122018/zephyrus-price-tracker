@@ -203,8 +203,8 @@ class Storage:
         now = utcnow()
         available = 1 if offer.available else 0
         stores_json = json.dumps([
-            {"store_id": s, "name": n, "city": c, "low_stock": bool(low)}
-            for s, n, c, low in offer.stores
+            {"store_id": s, "name": n, "city": c, "region": r, "low_stock": bool(low)}
+            for s, n, c, r, low in offer.stores
         ])
 
         if changed:
