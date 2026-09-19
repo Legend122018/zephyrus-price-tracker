@@ -19,6 +19,7 @@ from zephyrus_tracker.detect import (
 )
 from zephyrus_tracker.feeds import Deal, FeedClient, _last_price
 from zephyrus_tracker.models import Offer, Product
+from zephyrus_tracker.dashboard import collect, render as render_dashboard
 from zephyrus_tracker.report import console_report, html_report
 from zephyrus_tracker.scan import FeedScanner, Scanner, _has_keyword
 from zephyrus_tracker.storage import Storage
@@ -444,6 +445,57 @@ class TestReports(TrackerTestCase):
         text = console_report(self.db)
         self.assertIn("Open-Box: Excellent", text)
         self.assertIn("New", text)
+
+
+class TestDashboard(TrackerTestCase):
+    def build(self, client=None):
+        Scanner(self.cfg, self.db, client or FakeClient()).run(dry_run=True, notifiers=[])
+        out = Path(self.tmp.name) / "site" / "index.html"
+        render_dashboard(self.db, out, self.cfg)
+        return out, out.read_text(encoding="utf-8")
+
+    def test_page_is_self_contained(self):
+        _out, text = self.build()
+        # A dashboard that fetched at view time would be blank inside the
+        # artifact sandbox and on any host with a strict CSP.
+        for forbidden in ("fetch(", "XMLHttpRequest", "<script src", "import(") :
+            self.assertNotIn(forbidden, text, forbidden)
+
+    def test_real_rows_are_embedded(self):
+        _out, text = self.build()
+        self.assertIn(G14, text)
+        self.assertIn('"price"', text)
+
+    def test_open_box_rows_are_flagged(self):
+        Scanner(self.cfg, self.db, FakeClient(open_box={
+            G14: open_box_entry(G14, 1999.99, [("excellent", 1499.99)])
+        })).run(dry_run=True, notifiers=[])
+        rows = collect(self.db)
+        self.assertTrue(any(r["openBox"] for r in rows))
+        self.assertTrue(any(not r["openBox"] for r in rows))
+
+    def test_rows_are_ordered_oldest_first(self):
+        self.build()
+        dates = [r["posted"] for r in collect(self.db)]
+        self.assertEqual(dates, sorted(dates))
+
+    def test_priceless_offers_are_omitted(self):
+        self.build()
+        for row in collect(self.db):
+            self.assertIsNotNone(row["price"])
+
+    def test_falls_back_to_first_seen_when_no_posting_date(self):
+        # The Best Buy backend has no posting date; rows must still appear.
+        self.build()
+        rows = collect(self.db)
+        self.assertTrue(rows)
+        for row in rows:
+            self.assertRegex(row["posted"], r"^\d{4}-\d{2}-\d{2}$")
+
+    def test_empty_database_still_renders(self):
+        out = Path(self.tmp.name) / "empty.html"
+        render_dashboard(self.db, out, self.cfg)
+        self.assertIn("no deals recorded yet", out.read_text(encoding="utf-8"))
 
 
 class TestNotificationPayloads(unittest.TestCase):

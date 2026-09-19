@@ -15,6 +15,7 @@ from . import __version__
 from .bestbuy import AuthError, BestBuyClient, BestBuyError
 from .feeds import FeedClient, FeedError
 from .config import Config, ConfigError
+from .dashboard import render as render_dashboard
 from .detect import money
 from datetime import datetime, timezone
 
@@ -271,6 +272,17 @@ def cmd_report(args, cfg: Config) -> int:
     return 0
 
 
+def cmd_dashboard(args, cfg: Config) -> int:
+    with _storage(cfg) as db:
+        path = render_dashboard(db, args.out, cfg)
+        rows = len(db.get_products())
+    print(f"Wrote {path.resolve()} ({rows} tracked items)")
+    if rows == 0:
+        print("Nothing tracked yet -- run `zephyrus scan` first.", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_history(args, cfg: Config) -> int:
     with _storage(cfg) as db:
         conditions = [args.condition] if args.condition else [
@@ -378,6 +390,12 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--html", nargs="?", const="report.html",
                    help="write an HTML report (default path: report.html)")
     p.set_defaults(func=cmd_report)
+
+    p = sub.add_parser("dashboard",
+                       help="write the standalone dashboard page from the database")
+    p.add_argument("--out", default="site/index.html",
+                   help="output path (default: site/index.html)")
+    p.set_defaults(func=cmd_dashboard)
 
     p = sub.add_parser("history", help="price history for one SKU")
     p.add_argument("sku")
