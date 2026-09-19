@@ -1,13 +1,19 @@
 # Run the tracker on GitHub's machines -- no always-on computer needed.
 #
-# ONE-TIME SETUP (the parts only a repo admin can do):
+# This runs out of the box on the "feeds" backend, which needs NO credentials.
+#
+# SETUP:
 #   1. Settings > Secrets and variables > Actions > New repository secret:
-#        BESTBUY_API_KEY        required -- https://developer.bestbuy.com/
-#        ZEPHYRUS_NTFY_TOPIC    optional -- phone push via ntfy.sh
+#        ZEPHYRUS_NTFY_TOPIC    strongly recommended -- phone push via ntfy.sh
 #        ZEPHYRUS_WEBHOOK_URL   optional -- Slack / Discord / generic webhook
 #        ZEPHYRUS_SMTP_PASSWORD optional -- only if you enable notify.email
+#        BESTBUY_API_KEY        ONLY for the "bestbuy" backend
 #   2. Actions tab > enable workflows if prompted.
 #   3. Run it once by hand: Actions > "Zephyrus price scan" > Run workflow.
+#
+# To switch to the official Best Buy API once you have a key, add a repository
+# VARIABLE (not a secret) named ZEPHYRUS_BACKEND with the value "bestbuy", and
+# add the BESTBUY_API_KEY secret.
 #
 # Price history lives in the Actions cache between runs. Each run saves a new
 # entry and restores the newest previous one, so the SQLite DB carries forward.
@@ -53,32 +59,38 @@ jobs:
 
       # Without this guard every scheduled run fails until the secret exists,
       # and GitHub emails on each one -- ~48 failure mails a day.
+      # The feeds backend needs no credentials, so only the bestbuy backend can
+      # be unconfigured. Failing every half hour would otherwise mail you ~48
+      # times a day.
       - name: Check configuration
         id: guard
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          ZEPHYRUS_BACKEND: ${{ vars.ZEPHYRUS_BACKEND }}
         run: |
-          if [ -z "$BESTBUY_API_KEY" ]; then
+          backend="${ZEPHYRUS_BACKEND:-feeds}"
+          if [ "$backend" = "bestbuy" ] && [ -z "$BESTBUY_API_KEY" ]; then
             echo "configured=false" >> "$GITHUB_OUTPUT"
             {
               echo "### Scan skipped"
               echo ""
-              echo "\`BESTBUY_API_KEY\` is not set for this repository, so there is"
-              echo "nothing to scan with."
+              echo "The backend is set to \`bestbuy\` but \`BESTBUY_API_KEY\` is not set."
               echo ""
-              echo "Add it under **Settings > Secrets and variables > Actions >"
-              echo "New repository secret**. Get a free key at"
-              echo "<https://developer.bestbuy.com/>."
+              echo "Either add the secret under **Settings > Secrets and variables >"
+              echo "Actions**, or remove the \`ZEPHYRUS_BACKEND\` variable to fall back"
+              echo "to the credential-free deal feeds."
             } >> "$GITHUB_STEP_SUMMARY"
-            echo "::notice::BESTBUY_API_KEY is not set; skipping the scan."
+            echo "::notice::backend=bestbuy but no API key; skipping the scan."
           else
             echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::running the $backend backend."
           fi
 
       - name: Scan
         if: steps.guard.outputs.configured == 'true'
         env:
           BESTBUY_API_KEY: ${{ secrets.BESTBUY_API_KEY }}
+          ZEPHYRUS_BACKEND: ${{ vars.ZEPHYRUS_BACKEND }}
           ZEPHYRUS_NTFY_TOPIC: ${{ secrets.ZEPHYRUS_NTFY_TOPIC }}
           ZEPHYRUS_WEBHOOK_URL: ${{ secrets.ZEPHYRUS_WEBHOOK_URL }}
           ZEPHYRUS_SMTP_PASSWORD: ${{ secrets.ZEPHYRUS_SMTP_PASSWORD }}

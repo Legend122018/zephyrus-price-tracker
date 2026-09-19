@@ -13,6 +13,42 @@ timeout_seconds = 30
 max_retries = 4
 
 
+# ---------------------------------------------------------------------------
+#  Where the data comes from.
+#
+#  "feeds"   -- public deal feeds (Slickdeals and any RSS you add). No account,
+#               no key, works immediately. Sees deals people POST, not Best Buy
+#               inventory, and carries no store-level data at all.
+#  "bestbuy" -- the official Best Buy API. Much better data, including per-store
+#               Boston pickup stock, but Best Buy will not issue API keys to
+#               free email providers (gmail, outlook, .edu ...).
+# ---------------------------------------------------------------------------
+[source]
+backend = "feeds"
+
+
+[feeds]
+# Feed search is fuzzy and each query returns a different slice, so several
+# narrow queries beat one broad one.
+queries = [
+    "zephyrus",
+    "rog zephyrus g14",
+    "rog zephyrus g16",
+    "zephyrus open box",
+]
+
+# Any extra RSS/Atom feed URLs to merge in. For example a subreddit search:
+#   urls = ["https://www.reddit.com/r/buildapcsales/search.rss?q=zephyrus&restrict_sr=1&sort=new"]
+urls = []
+
+# Only alert on these retailers. Empty = any. Note that a posting whose
+# retailer cannot be identified is dropped when this filter is set.
+retailers = []
+
+require_price = true     # skip postings with no parseable price
+max_age_days  = 180      # how far back to record; the first scan is silent
+
+
 [search]
 # One Products API query per term; results are merged and de-duplicated.
 terms = ["zephyrus"]
@@ -66,6 +102,7 @@ max_price             = 0      # 0 = no cap. Set e.g. 1800 to mute pricier units
 [alerts]
 cooldown_hours      = 24       # don't repeat an identical alert within a day
 include_unavailable = false    # alert on price changes for out-of-stock items
+max_per_scan        = 12       # cap a flood; 0 = unlimited
 
 
 [storage]

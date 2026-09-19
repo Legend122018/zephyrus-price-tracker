@@ -13,12 +13,15 @@ from pathlib import Path
 
 from . import __version__
 from .bestbuy import AuthError, BestBuyClient, BestBuyError
+from .feeds import FeedClient, FeedError
 from .config import Config, ConfigError
 from .detect import money
+from datetime import datetime, timezone
+
 from .models import Alert, condition_label
 from .notify import build_notifiers, dispatch
 from .report import console_report, html_report
-from .scan import Scanner
+from .scan import FeedScanner, Scanner
 from .storage import Storage
 
 log = logging.getLogger("zephyrus")
@@ -47,6 +50,17 @@ def _storage(cfg: Config) -> Storage:
     return Storage(cfg.get("storage.database", "zephyrus.db"))
 
 
+def _feed_client(cfg: Config) -> FeedClient:
+    return FeedClient(timeout=int(cfg.get("bestbuy.timeout_seconds", 25)))
+
+
+def _scanner(cfg: Config, db: Storage):
+    """The scanner for the configured backend."""
+    if cfg.backend == "bestbuy":
+        return Scanner(cfg, db, _client(cfg))
+    return FeedScanner(cfg, db, _feed_client(cfg))
+
+
 # ------------------------------------------------------------------ commands
 
 
@@ -72,21 +86,44 @@ def cmd_init(args, cfg: Config) -> int:
 def cmd_check(args, cfg: Config) -> int:
     problems = cfg.validate()
     print(f"Config: {cfg.path or '(defaults only -- no config.toml found)'}")
+    print(f"  Backend: {cfg.backend}"
+          + ("  (public deal feeds -- no credentials needed)" if cfg.backend == "feeds"
+             else "  (official Best Buy API)"))
     for problem in problems:
         print(f"  ! {problem}")
     if any("api_key" in p for p in problems):
         return 1
 
-    try:
-        client = _client(cfg)
-        client.validate_key()
-        print("  Best Buy API key: OK")
-    except AuthError as exc:
-        print(f"  ! Best Buy API key rejected: {exc}")
-        return 1
-    except BestBuyError as exc:
-        print(f"  ! Could not reach the Best Buy API: {exc}")
-        return 1
+    if cfg.backend == "bestbuy":
+        try:
+            _client(cfg).validate_key()
+            print("  Best Buy API key: OK")
+        except AuthError as exc:
+            print(f"  ! Best Buy API key rejected: {exc}")
+            return 1
+        except BestBuyError as exc:
+            print(f"  ! Could not reach the Best Buy API: {exc}")
+            return 1
+    else:
+        client = _feed_client(cfg)
+        reachable = 0
+        for query in cfg.get("feeds.queries", []) or []:
+            try:
+                found = client.slickdeals(str(query))
+                reachable += 1
+                print(f"  Feed slickdeals({query}): OK, {len(found)} items")
+            except FeedError as exc:
+                print(f"  ! Feed slickdeals({query}) failed: {exc}")
+        for url in cfg.get("feeds.urls", []) or []:
+            try:
+                found = client.feed(str(url))
+                reachable += 1
+                print(f"  Feed {url}: OK, {len(found)} items")
+            except FeedError as exc:
+                print(f"  ! Feed {url} failed: {exc}")
+        if not reachable:
+            print("  ! No configured feed could be reached")
+            return 1
 
     channels = [n.name for n in build_notifiers(cfg)]
     print(f"  Notification channels: {', '.join(channels) or 'NONE'}")
@@ -97,6 +134,11 @@ def cmd_check(args, cfg: Config) -> int:
 
 
 def cmd_stores(args, cfg: Config) -> int:
+    if cfg.backend != "bestbuy":
+        print("Store lookup needs the Best Buy API backend; the deal feeds carry\n"
+              "no store-level data at all. Set source.backend = \"bestbuy\" in\n"
+              "config.toml once you have an API key.", file=sys.stderr)
+        return 1
     with _storage(cfg) as db:
         scanner = Scanner(cfg, db, _client(cfg))
         stores = scanner.refresh_stores(force=args.refresh)
@@ -117,6 +159,22 @@ def cmd_stores(args, cfg: Config) -> int:
 
 def cmd_discover(args, cfg: Config) -> int:
     with _storage(cfg) as db:
+        if cfg.backend == "feeds":
+            deals = FeedScanner(cfg, db, _feed_client(cfg)).discover()
+            if not deals:
+                print("No matching deals. Loosen search.include_keywords, add more\n"
+                      "feeds.queries, or clear feeds.retailers.")
+                return 1
+            print(f"{len(deals)} matching deals:\n")
+            for deal in sorted(deals, key=lambda d: d.posted_at or datetime.min.replace(
+                    tzinfo=timezone.utc), reverse=True):
+                when = deal.posted_at.strftime("%Y-%m-%d") if deal.posted_at else "unknown"
+                print(f"  {when}  {money(deal.price) if deal.price else 'n/a':>11}  "
+                      f"{condition_label(deal.condition):<20} "
+                      f"{(deal.retailer or '-'):<12} {deal.title[:58]}")
+                print(f"              {deal.url}")
+            return 0
+
         scanner = Scanner(cfg, db, _client(cfg))
         products = scanner.discover_products()
         if not products:
@@ -133,25 +191,30 @@ def cmd_discover(args, cfg: Config) -> int:
 def cmd_scan(args, cfg: Config) -> int:
     notifiers = build_notifiers(cfg)
     with _storage(cfg) as db:
-        scanner = Scanner(cfg, db, _client(cfg))
+        scanner = _scanner(cfg, db)
         try:
             result = scanner.run(dry_run=args.dry_run, notifiers=notifiers)
         except AuthError as exc:
             print(f"API key problem: {exc}", file=sys.stderr)
             return 1
-        except BestBuyError as exc:
-            print(f"Best Buy API error: {exc}", file=sys.stderr)
+        except (BestBuyError, FeedError) as exc:
+            print(f"{cfg.backend} backend error: {exc}", file=sys.stderr)
             return 2
 
-        summary = (f"Scanned {result.products} products / {len(result.offers)} offers "
-                   f"in {result.duration_s:.1f}s ({result.api_requests} API calls)")
-        if result.alerts:
+        summary = (f"[{cfg.backend}] scanned {result.products} products / "
+                   f"{len(result.offers)} offers in {result.duration_s:.1f}s "
+                   f"({result.api_requests} requests)")
+        if result.baseline:
+            summary += " -- baseline recorded, no alerts sent on a first scan"
+        elif result.alerts:
             label = "would send" if args.dry_run else "sent"
             summary += f" -- {len(result.alerts)} alert(s) {label}"
         else:
             summary += " -- nothing new"
         if result.suppressed:
             summary += f", {result.suppressed} suppressed by cooldown"
+        if result.capped:
+            summary += f", {result.capped} withheld by alerts.max_per_scan"
         print(summary)
 
         if args.dry_run and result.alerts:

@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -16,9 +17,10 @@ from zephyrus_tracker.config import Config, DEFAULTS
 from zephyrus_tracker.detect import (
     ALL_TIME_LOW, BOSTON_PICKUP, HEAVY_DISCOUNT, OPENBOX_RESTOCK, PRICE_DROP, Detector,
 )
+from zephyrus_tracker.feeds import Deal, FeedClient, _last_price
 from zephyrus_tracker.models import Offer
 from zephyrus_tracker.report import console_report, html_report
-from zephyrus_tracker.scan import Scanner
+from zephyrus_tracker.scan import FeedScanner, Scanner, _has_keyword
 from zephyrus_tracker.storage import Storage
 
 G14 = "6571749"
@@ -195,6 +197,7 @@ class TestOpenBox(TrackerTestCase):
 
 class TestPriceAlerts(TrackerTestCase):
     def test_sale_price_below_threshold_is_a_heavy_discount(self):
+        self.scan(FakeClient())                 # baseline scan sends nothing
         products = copy.deepcopy(BASE_PRODUCTS)
         products[0]["salePrice"] = 1449.99      # 27.5% off 1999.99
         result = self.scan(FakeClient(products=products))
@@ -249,6 +252,39 @@ class TestPriceAlerts(TrackerTestCase):
         self.assertEqual(g14_alerts[0].kind, ALL_TIME_LOW)
 
 
+class TestFirstScanBaseline(TrackerTestCase):
+    def test_first_scan_records_everything_and_alerts_nothing(self):
+        products = copy.deepcopy(BASE_PRODUCTS)
+        products[0]["salePrice"] = 999.99       # 50% off -- would normally shout
+        result = self.scan(FakeClient(products=products, open_box={
+            G14: open_box_entry(G14, 1999.99, [("excellent", 1099.99)])
+        }))
+        self.assertTrue(result.baseline)
+        self.assertEqual(result.alerts, [])
+        # ...but the data is all there, ready to compare against next time.
+        self.assertIsNotNone(self.db.get_offer_state(G14, "new"))
+        self.assertIsNotNone(self.db.get_offer_state(G14, "openbox-excellent"))
+
+    def test_second_scan_alerts_normally(self):
+        self.scan(FakeClient())
+        products = copy.deepcopy(BASE_PRODUCTS)
+        products[0]["salePrice"] = 999.99
+        result = self.scan(FakeClient(products=products))
+        self.assertFalse(result.baseline)
+        self.assertTrue(result.alerts)
+
+    def test_alert_flood_is_capped(self):
+        cfg = make_config(self.tmp.name, **{"alerts.max_per_scan": 1})
+        cfg.set("storage.database", self.cfg.get("storage.database"))
+        self.scan(FakeClient(), cfg)
+        products = copy.deepcopy(BASE_PRODUCTS)
+        products[0]["salePrice"] = 999.99
+        products[1]["salePrice"] = 1299.99
+        result = self.scan(FakeClient(products=products), cfg)
+        self.assertEqual(len(result.alerts), 1)
+        self.assertGreaterEqual(result.capped, 1)
+
+
 class TestStoreAvailability(TrackerTestCase):
     def test_only_stores_in_the_boston_set_are_counted(self):
         client = FakeClient(availability={G14: [
@@ -274,6 +310,7 @@ class TestCooldown(TrackerTestCase):
         products[0]["salePrice"] = 1449.99
         client = FakeClient(products=products)
 
+        Scanner(self.cfg, self.db, FakeClient()).run(dry_run=False, notifiers=[])  # baseline
         first = Scanner(self.cfg, self.db, client).run(dry_run=False, notifiers=[])
         self.assertIn(HEAVY_DISCOUNT, {a.kind for a in first.alerts})
 
@@ -288,6 +325,7 @@ class TestCooldown(TrackerTestCase):
         products = copy.deepcopy(BASE_PRODUCTS)
         products[0]["salePrice"] = 1449.99
 
+        Scanner(cfg, self.db, FakeClient()).run(dry_run=False, notifiers=[])  # baseline
         Scanner(cfg, self.db, FakeClient(products=products)).run(dry_run=False, notifiers=[])
         second = Scanner(cfg, self.db, FakeClient(products=products)).run(
             dry_run=False, notifiers=[])
@@ -402,6 +440,162 @@ class TestNotificationPayloads(unittest.TestCase):
                       message="m", price=1.0, regular_price=2.0, discount_pct=50.0,
                       url="u", dedupe_key="k")
         self.assertEqual(json.loads(json.dumps(alert.as_dict()))["sku"], "1")
+
+
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "slickdeals_zephyrus.xml"
+
+
+class FakeFeedClient:
+    """Serves canned feed XML; no network."""
+
+    def __init__(self, deals=None, xml=None):
+        self._deals = deals
+        self._xml = xml if xml is not None else FIXTURE.read_text(encoding="utf-8")
+        self.request_count = 0
+
+    def slickdeals(self, query):
+        self.request_count += 1
+        if self._deals is not None:
+            return list(self._deals)
+        return FeedClient.parse(self._xml, source=f"slickdeals:{query}")
+
+    def feed(self, url):
+        self.request_count += 1
+        return FeedClient.parse(self._xml, source=url)
+
+
+def make_deal(uid, title, price, condition="new", retailer="Best Buy", age_days=1):
+    return Deal(
+        uid=uid, title=title, url=f"https://slickdeals.net/f/{uid}",
+        price=price, condition=condition, retailer=retailer,
+        posted_at=datetime.now(timezone.utc) - timedelta(days=age_days),
+        source="test", raw_title=title,
+    )
+
+
+class TestPriceParsing(unittest.TestCase):
+    def test_prices_with_and_without_thousands_separators(self):
+        # The first cut of this regex matched "259" inside "$2599.99", because
+        # the comma-grouped alternative won and never backtracked.
+        cases = {
+            "$2599.99": 2599.99, "$1,631.99": 1631.99, "$733.59": 733.59,
+            "$2,499": 2499.0, "$99": 99.0, "SSD $2599.99": 2599.99,
+        }
+        for text, expected in cases.items():
+            self.assertEqual(_last_price(text), expected, text)
+
+    def test_trailing_price_wins(self):
+        self.assertEqual(_last_price("was $2,499.00 now $1,899.99"), 1899.99)
+
+    def test_no_price_is_none(self):
+        self.assertIsNone(_last_price("ROG Zephyrus G16 - 16GB - RTX 5070"))
+
+
+class TestFeedParsing(unittest.TestCase):
+    """Parsed against a real Slickdeals response saved to tests/fixtures."""
+
+    def setUp(self):
+        self.deals = FeedClient.parse(FIXTURE.read_text(encoding="utf-8"), source="fixture")
+
+    def test_every_item_parses(self):
+        self.assertGreaterEqual(len(self.deals), 4)
+        for deal in self.deals:
+            self.assertTrue(deal.uid and deal.title and deal.url)
+
+    def test_open_box_postings_are_classified(self):
+        open_box = [d for d in self.deals if d.condition == "openbox-listed"]
+        self.assertTrue(open_box, "fixture must contain open-box postings")
+        for deal in open_box:
+            self.assertIsNotNone(deal.price)
+
+    def test_retailer_is_recognised(self):
+        self.assertIn("Best Buy", {d.retailer for d in self.deals})
+
+    def test_uid_is_the_stable_thread_id(self):
+        for deal in self.deals:
+            self.assertTrue(deal.uid.startswith("sd-"), deal.uid)
+        self.assertEqual(len({d.uid for d in self.deals}), len(self.deals))
+
+    def test_tracking_urls_are_stripped(self):
+        for deal in self.deals:
+            self.assertNotIn("utm_", deal.url)
+
+    def test_title_loses_its_trailing_price(self):
+        for deal in self.deals:
+            self.assertFalse(deal.title.rstrip().endswith(".99"), deal.title)
+
+
+class TestKeywordMatching(unittest.TestCase):
+    def test_matching_is_word_bounded(self):
+        # Substring matching would drop this for the exclude keyword "case".
+        self.assertFalse(_has_keyword("ASUS Showcase Laptop", ["case"]))
+        self.assertTrue(_has_keyword("ASUS Laptop Sleeve Case", ["case"]))
+
+
+class TestFeedScanner(TrackerTestCase):
+    def feed_scan(self, client, cfg=None):
+        return FeedScanner(cfg or self.cfg, self.db, client).run(dry_run=True, notifiers=[])
+
+    def test_fixture_deals_become_tracked_offers(self):
+        result = self.feed_scan(FakeFeedClient())
+        self.assertGreaterEqual(result.products, 4)
+        self.assertTrue(result.baseline)
+        self.assertEqual(result.alerts, [])
+
+    def test_a_new_open_box_posting_alerts(self):
+        self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14 Gaming Laptop", 2599.99),
+        ]))
+        result = self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14 Gaming Laptop", 2599.99),
+            make_deal("sd-2", "Open-Box: ASUS ROG Zephyrus G14", 1279.99,
+                      condition="openbox-listed"),
+        ]))
+        self.assertIn(OPENBOX_RESTOCK, {a.kind for a in result.alerts})
+
+    def test_retailer_filter_drops_other_stores_and_unknowns(self):
+        cfg = make_config(self.tmp.name, **{"feeds.retailers": ["Best Buy"]})
+        cfg.set("storage.database", self.cfg.get("storage.database"))
+        result = self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0, retailer="Best Buy"),
+            make_deal("sd-2", "ASUS ROG Zephyrus G14", 1899.0, retailer="Amazon"),
+            make_deal("sd-3", "ASUS ROG Zephyrus G14", 1799.0, retailer=""),
+        ]), cfg)
+        self.assertEqual({o.sku for o in result.offers}, {"sd-1"})
+
+    def test_stale_postings_are_ignored(self):
+        cfg = make_config(self.tmp.name, **{"feeds.max_age_days": 30})
+        cfg.set("storage.database", self.cfg.get("storage.database"))
+        result = self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0, age_days=5),
+            make_deal("sd-2", "ASUS ROG Zephyrus G14", 1899.0, age_days=90),
+        ]), cfg)
+        self.assertEqual({o.sku for o in result.offers}, {"sd-1"})
+
+    def test_non_zephyrus_results_are_filtered_out(self):
+        # Feed search is fuzzy -- an "open box" query really does return
+        # MacBooks alongside the laptops we asked about.
+        result = self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0),
+            make_deal("sd-2", "Apple MacBook Air (Open-Boxes): 15\", M4", 860.99,
+                      condition="openbox-listed"),
+        ]))
+        self.assertEqual({o.sku for o in result.offers}, {"sd-1"})
+
+    def test_priceless_postings_are_skipped_when_required(self):
+        result = self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14", None),
+            make_deal("sd-2", "ASUS ROG Zephyrus G16", 1899.0),
+        ]))
+        self.assertEqual({o.sku for o in result.offers}, {"sd-2"})
+
+    def test_a_deal_whose_price_is_edited_records_history(self):
+        first = [make_deal("sd-1", "ASUS ROG Zephyrus G14", 1999.0)]
+        self.feed_scan(FakeFeedClient(deals=first))
+        self.feed_scan(FakeFeedClient(deals=[
+            make_deal("sd-1", "ASUS ROG Zephyrus G14", 1699.0)]))
+        self.assertEqual(self.db.observation_count("sd-1", "new"), 2)
+        self.assertEqual(self.db.lowest_price("sd-1", "new"), 1699.0)
 
 
 class TestShippedConfigExample(unittest.TestCase):

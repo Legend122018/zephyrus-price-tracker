@@ -11,6 +11,30 @@ from typing import Any
 DEFAULT_CONFIG_PATH = Path("config.toml")
 
 DEFAULTS: dict[str, Any] = {
+    # "feeds" needs no credentials and works immediately. "bestbuy" is the
+    # official API -- better data, but Best Buy will not issue keys to free
+    # email providers, so it is not the default.
+    "source": {
+        "backend": "feeds",
+    },
+    "feeds": {
+        # Feed search is fuzzy and each query returns a different slice, so
+        # several narrow queries beat one broad one -- measured on live data,
+        # these four surface roughly twice what "zephyrus" alone does.
+        "queries": [
+            "zephyrus",
+            "rog zephyrus g14",
+            "rog zephyrus g16",
+            "zephyrus open box",
+        ],
+        "urls": [],               # any extra RSS/Atom feed URLs
+        "retailers": [],          # e.g. ["Best Buy"]; empty = any retailer
+        "require_price": True,    # skip postings with no parseable price
+        # Feed search returns years of history. A wide window is deliberate:
+        # the first scan records it all silently as a baseline, which gives
+        # the report real context for judging whether a new deal is good.
+        "max_age_days": 180,
+    },
     "bestbuy": {
         "api_key": "",
         "requests_per_second": 4.0,
@@ -54,6 +78,7 @@ DEFAULTS: dict[str, Any] = {
     "alerts": {
         "cooldown_hours": 24,            # don't repeat the same alert this often
         "include_unavailable": False,    # alert on price even when out of stock
+        "max_per_scan": 12,              # cap a flood; 0 = unlimited
     },
     "storage": {
         "database": "zephyrus.db",
@@ -79,6 +104,7 @@ DEFAULTS: dict[str, Any] = {
 #: Environment variables that override config values, ``ENV -> (section, key)``.
 ENV_OVERRIDES = {
     "BESTBUY_API_KEY": ("bestbuy", "api_key"),
+    "ZEPHYRUS_BACKEND": ("source", "backend"),
     "ZEPHYRUS_DB": ("storage", "database"),
     "ZEPHYRUS_POSTAL_CODE": ("location", "postal_code"),
     "ZEPHYRUS_NTFY_TOPIC": ("notify.ntfy", "topic"),
@@ -161,18 +187,33 @@ class Config:
             )
         return key
 
+    @property
+    def backend(self) -> str:
+        return str(self.get("source.backend", "feeds") or "feeds").strip().lower()
+
     def validate(self) -> list[str]:
         """Return a list of human-readable problems; empty means good to go."""
         problems: list[str] = []
-        if not str(self.get("bestbuy.api_key") or "").strip():
-            problems.append("bestbuy.api_key is empty (or set BESTBUY_API_KEY)")
 
-        postal = str(self.get("location.postal_code") or "")
-        if not (postal.isdigit() and len(postal) == 5):
-            problems.append(f"location.postal_code must be a 5-digit ZIP, got {postal!r}")
+        if self.backend not in ("feeds", "bestbuy"):
+            problems.append(
+                f"source.backend must be 'feeds' or 'bestbuy', got {self.backend!r}")
 
-        if not self.get("search.terms"):
-            problems.append("search.terms is empty -- nothing would be tracked")
+        if self.backend == "bestbuy":
+            if not str(self.get("bestbuy.api_key") or "").strip():
+                problems.append("bestbuy.api_key is empty (or set BESTBUY_API_KEY)")
+
+            postal = str(self.get("location.postal_code") or "")
+            if not (postal.isdigit() and len(postal) == 5):
+                problems.append(
+                    f"location.postal_code must be a 5-digit ZIP, got {postal!r}")
+
+            if not self.get("search.terms"):
+                problems.append("search.terms is empty -- nothing would be tracked")
+        else:
+            if not (self.get("feeds.queries") or self.get("feeds.urls")):
+                problems.append("feeds.queries and feeds.urls are both empty -- "
+                                "nothing would be tracked")
 
         email = self.section("notify.email")
         if email.get("enabled"):

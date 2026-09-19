@@ -17,6 +17,7 @@ CONDITION_LABELS = {
     NEW: "New",
     REFURBISHED: "Geek Squad Refurbished",
     PRE_OWNED: "Pre-owned",
+    "openbox-listed": "Open-Box",          # feed backend: tier not stated
     "openbox-excellent": "Open-Box: Excellent",
     "openbox-certified": "Open-Box: Certified",
     "openbox-satisfactory": "Open-Box: Satisfactory",
@@ -26,6 +27,7 @@ CONDITION_LABELS = {
 CONDITION_ORDER = [
     NEW,
     REFURBISHED,
+    "openbox-listed",
     "openbox-excellent",
     "openbox-certified",
     "openbox-satisfactory",

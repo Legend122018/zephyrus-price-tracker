@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any
 
 from .bestbuy import BestBuyClient, BestBuyError
+from .feeds import FeedClient, FeedError
 from .detect import Detector, filter_new_alerts
 from .models import NEW, OPEN_BOX_PREFIX, PRE_OWNED, REFURBISHED, Alert, Offer, Product
 from .notify import dispatch
@@ -32,14 +35,77 @@ class ScanResult:
     duration_s: float = 0.0
     failed_channels: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    #: True when this scan only established a baseline and deliberately
+    #: sent nothing -- the first scan has nothing to compare against.
+    baseline: bool = False
+    capped: int = 0
 
 
-class Scanner:
-    def __init__(self, config, storage: Storage, client: BestBuyClient) -> None:
+class AlertPipeline:
+    """Shared tail of every scan: persist, detect, suppress, notify.
+
+    Both backends -- the Best Buy API and the public deal feeds -- produce the
+    same ``Product`` / ``Offer`` shapes, so everything downstream of discovery
+    is identical and lives here.
+    """
+
+    def __init__(self, config, storage: Storage) -> None:
         self.cfg = config
         self.db = storage
-        self.client = client
         self.detector = Detector(config, storage)
+
+    def process(self, products: dict[str, Product], offers: list[Offer],
+                result: ScanResult, *, dry_run: bool, notifiers: list | None) -> None:
+        cooldown = int(self.cfg.get("alerts.cooldown_hours", 24))
+        max_alerts = int(self.cfg.get("alerts.max_per_scan", 12))
+
+        # Nothing tracked yet means nothing to compare against, so the first
+        # scan would otherwise fire an alert for every single listing.
+        result.baseline = not self.db.get_products()
+
+        seen_keys: set[tuple[str, str]] = set()
+        candidates: list[Alert] = []
+
+        with self.db.tx():
+            for sku, product in products.items():
+                is_new_product = self.db.upsert_product(product)
+                for offer in [o for o in offers if o.sku == sku]:
+                    seen_keys.add(offer.key)
+                    prev = self.db.get_offer_state(offer.sku, offer.condition)
+                    if not result.baseline:
+                        candidates.extend(self.detector.evaluate(
+                            offer, product.name, prev, product_is_new=is_new_product))
+                    # Detection reads history, so persist only afterwards.
+                    self.db.record_offer(offer, changed=_changed(prev, offer))
+            self.db.mark_offers_gone(seen_keys)
+
+        if result.baseline:
+            log.info("First scan: recorded %d offers as a baseline, no alerts sent",
+                     len(offers))
+            return
+
+        fresh = filter_new_alerts(candidates, self.db, cooldown)
+        result.suppressed = len(candidates) - len(fresh)
+        fresh.sort(key=lambda a: (-a.severity, a.product_name))
+
+        # A flood usually means something upstream changed shape, not that 40
+        # genuine deals landed at once. Cap it and say so.
+        if max_alerts > 0 and len(fresh) > max_alerts:
+            result.capped = len(fresh) - max_alerts
+            fresh = fresh[:max_alerts]
+
+        result.alerts = fresh
+        if fresh and not dry_run:
+            result.failed_channels = dispatch(notifiers or [], fresh)
+            with self.db.tx():
+                for alert in fresh:
+                    self.db.record_alert(alert)
+
+
+class Scanner(AlertPipeline):
+    def __init__(self, config, storage: Storage, client: BestBuyClient) -> None:
+        super().__init__(config, storage)
+        self.client = client
 
     # ------------------------------------------------------------ store list
 
@@ -104,20 +170,20 @@ class Scanner:
         name = str(raw.get("name") or "").lower()
         maker = str(raw.get("manufacturer") or "").lower()
 
-        includes = [k.lower() for k in self.cfg.get("search.include_keywords", []) or []]
-        if includes and not any(k in name for k in includes):
+        includes = self.cfg.get("search.include_keywords", []) or []
+        if includes and not _has_keyword(name, includes):
             return False
 
-        excludes = [k.lower() for k in self.cfg.get("search.exclude_keywords", []) or []]
-        if any(k in name for k in excludes):
+        excludes = self.cfg.get("search.exclude_keywords", []) or []
+        if _has_keyword(name, excludes):
             return False
 
         # Accessories often carry the laptop's name, so also require the brand.
         if manufacturer and manufacturer not in maker and manufacturer not in name:
             return False
 
-        models = [m.lower() for m in self.cfg.get("search.models", []) or []]
-        if models and not any(m in name for m in models):
+        models = self.cfg.get("search.models", []) or []
+        if models and not _has_keyword(name, models):
             return False
 
         return True
@@ -258,34 +324,8 @@ class Scanner:
             offers = self.build_offers(products)
             result.offers = offers
 
-            cooldown = int(self.cfg.get("alerts.cooldown_hours", 24))
-            seen_keys: set[tuple[str, str]] = set()
-            candidates: list[Alert] = []
-
-            with self.db.tx():
-                for sku, (product, _raw) in products.items():
-                    is_new_product = self.db.upsert_product(product)
-                    for offer in [o for o in offers if o.sku == sku]:
-                        seen_keys.add(offer.key)
-                        prev = self.db.get_offer_state(offer.sku, offer.condition)
-                        candidates.extend(self.detector.evaluate(
-                            offer, product.name, prev, product_is_new=is_new_product
-                        ))
-                        # Detection reads history, so persist only afterwards.
-                        self.db.record_offer(offer, changed=_changed(prev, offer))
-
-                self.db.mark_offers_gone(seen_keys)
-
-            fresh = filter_new_alerts(candidates, self.db, cooldown)
-            result.suppressed = len(candidates) - len(fresh)
-            fresh.sort(key=lambda a: (-a.severity, a.product_name))
-            result.alerts = fresh
-
-            if fresh and not dry_run:
-                result.failed_channels = dispatch(notifiers or [], fresh)
-                with self.db.tx():
-                    for alert in fresh:
-                        self.db.record_alert(alert)
+            self.process({sku: prod for sku, (prod, _raw) in products.items()},
+                         offers, result, dry_run=dry_run, notifiers=notifiers)
 
         except Exception as exc:  # recorded, re-raised to the caller
             error = f"{type(exc).__name__}: {exc}"
@@ -305,7 +345,122 @@ class Scanner:
         return result
 
 
+class FeedScanner(AlertPipeline):
+    """Backend for when no Best Buy API key is available.
+
+    Reads public deal feeds instead of Best Buy's API. It sees what people
+    post rather than Best Buy's own inventory, and carries no store-level
+    data at all -- see ``feeds.py`` for the full trade-off.
+    """
+
+    def __init__(self, config, storage: Storage, client: FeedClient) -> None:
+        super().__init__(config, storage)
+        self.client = client
+
+    def discover(self) -> list:
+        """Every matching deal across the configured queries and feed URLs."""
+        seen: dict[str, object] = {}
+        errors: list[str] = []
+
+        for query in self.cfg.get("feeds.queries", ["zephyrus"]) or []:
+            try:
+                for deal in self.client.slickdeals(str(query)):
+                    seen.setdefault(deal.uid, deal)
+            except FeedError as exc:
+                errors.append(f"slickdeals({query}): {exc}")
+                log.error("Slickdeals query %r failed: %s", query, exc)
+
+        for url in self.cfg.get("feeds.urls", []) or []:
+            try:
+                for deal in self.client.feed(str(url)):
+                    seen.setdefault(deal.uid, deal)
+            except FeedError as exc:
+                errors.append(f"{url}: {exc}")
+                log.error("Feed %s failed: %s", url, exc)
+
+        if errors and not seen:
+            raise FeedError("every configured feed failed: " + "; ".join(errors))
+
+        return [d for d in seen.values() if self._wanted(d)]
+
+    def _wanted(self, deal) -> bool:
+        title = deal.title
+        includes = self.cfg.get("search.include_keywords", []) or []
+        if includes and not _has_keyword(title, includes):
+            return False
+        if _has_keyword(title, self.cfg.get("search.exclude_keywords", []) or []):
+            return False
+
+        models = self.cfg.get("search.models", []) or []
+        if models and not _has_keyword(title, models):
+            return False
+
+        retailers = self.cfg.get("feeds.retailers", []) or []
+        if retailers:
+            wanted = {str(r).strip().lower() for r in retailers}
+            # An unidentified retailer is dropped when a filter is set --
+            # otherwise "Best Buy only" would quietly include everything.
+            if deal.retailer.lower() not in wanted:
+                return False
+
+        if self.cfg.get("feeds.require_price", True) and deal.price is None:
+            return False
+
+        max_age = int(self.cfg.get("feeds.max_age_days", 60) or 0)
+        if max_age and deal.posted_at:
+            age = (datetime.now(timezone.utc) - deal.posted_at).days
+            if age > max_age:
+                return False
+
+        return True
+
+    def run(self, *, dry_run: bool = False, notifiers: list | None = None) -> ScanResult:
+        started = time.monotonic()
+        result = ScanResult()
+        error: str | None = None
+        try:
+            deals = self.discover()
+            products = {d.uid: d.as_product() for d in deals}
+            offers = [d.as_offer() for d in deals]
+            result.products = len(products)
+            result.offers = offers
+            if not deals:
+                log.warning("No matching deals in any configured feed")
+
+            self.process(products, offers, result, dry_run=dry_run, notifiers=notifiers)
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            result.errors.append(error)
+            raise
+        finally:
+            result.duration_s = time.monotonic() - started
+            result.api_requests = self.client.request_count
+            self.db.record_scan(
+                products=result.products, offers=len(result.offers),
+                alerts=len(result.alerts), api_requests=result.api_requests,
+                duration_s=result.duration_s, error=error,
+            )
+        return result
+
+
 # --------------------------------------------------------------------- helpers
+
+
+def _has_keyword(text: str, keywords: list[str]) -> bool:
+    """True if any keyword appears in text as a whole word.
+
+    Substring matching is too blunt here: an exclude list containing "case"
+    would otherwise throw away a title mentioning "showcase", and feed titles
+    are long enough that such collisions are common.
+    """
+    lowered = (text or "").lower()
+    for keyword in keywords:
+        word = str(keyword).strip().lower()
+        if not word:
+            continue
+        if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", lowered):
+            return True
+    return False
 
 
 def _changed(prev, offer: Offer) -> bool:
